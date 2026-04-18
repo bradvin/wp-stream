@@ -58,7 +58,7 @@
 
 	const render = () => {
 		if ( ! state.messages.length ) {
-			log.innerHTML = '<div class="wp-stream-chat__empty">Send a message to watch the assistant response stream into the transcript.</div>';
+			log.innerHTML = '<div class="wp-stream-chat__empty">Send a message to start the chat.</div>';
 			return;
 		}
 
