@@ -1,0 +1,24 @@
+{
+  "name": "bradvin/wp-stream",
+  "description": "Thin WordPress plugin wrapper for the WP Stream core runtime.",
+  "type": "wordpress-plugin",
+  "license": "proprietary",
+  "version": "0.1.0",
+  "require": {
+    "php": ">=7.2.24",
+    "bradvin/wp-stream-core": "^0.1.0"
+  },
+  "repositories": [
+    {
+      "type": "path",
+      "url": "packages/wp-stream-core",
+      "options": {
+        "symlink": false
+      }
+    }
+  ],
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true
+  }
+}

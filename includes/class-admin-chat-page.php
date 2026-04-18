@@ -92,16 +92,16 @@ final class Admin_Chat_Page {
 
 		wp_enqueue_style(
 			'wp-stream-admin-chat',
-			WP_STREAM_URL . 'assets/admin-chat.css',
+			Plugin::get_asset_url( 'assets/admin-chat.css' ),
 			array(),
-			WP_STREAM_VERSION
+			Plugin::get_version()
 		);
 
 		wp_enqueue_script(
 			'wp-stream-admin-chat',
-			WP_STREAM_URL . 'assets/admin-chat.js',
+			Plugin::get_asset_url( 'assets/admin-chat.js' ),
 			array(),
-			WP_STREAM_VERSION,
+			Plugin::get_version(),
 			true
 		);
 
@@ -278,7 +278,7 @@ final class Admin_Chat_Page {
 		);
 
 		try {
-			$result = \wp_stream_generate_result(
+			$result = Ai_Client_Bridge::generateResult(
 				$prompt_messages,
 				$model_config,
 				null,
