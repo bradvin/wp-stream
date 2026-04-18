@@ -39,3 +39,9 @@ Or wrap an existing core prompt builder:
 $builder = wp_ai_client_prompt( $prompt_messages )->using_model_config( $model_config );
 $result  = wp_ai_client_stream( $builder, array( 'streaming_enabled' => true ) )->generate_result();
 ```
+
+For transport diagnostics against the default registry, call:
+
+```php
+$diagnostics = WP_AI_Client_Streaming_Transport_Diagnostics::get_default_registry_diagnostics();
+```
