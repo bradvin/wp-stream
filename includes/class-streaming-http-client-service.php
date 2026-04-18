@@ -204,6 +204,15 @@ final class Streaming_HTTP_Client_Service {
 			$args['redirection'] = 0;
 		}
 
+		/*
+		 * Streaming requests should prefer HTTP/1.1. WordPress defaults many HTTP
+		 * calls to 1.0, but streamed SSE responses are materially more reliable
+		 * when the upstream request uses normal HTTP/1.1 transfer semantics.
+		 */
+		if ( ! empty( $analysis['contract']['enabled'] ) ) {
+			$args['httpversion'] = '1.1';
+		}
+
 		if ( null !== $options ) {
 			if ( method_exists( $options, 'getTimeout' ) && null !== $options->getTimeout() ) {
 				$args['timeout'] = $options->getTimeout();
@@ -322,13 +331,9 @@ final class Streaming_HTTP_Client_Service {
 		curl_setopt( $handle, CURLOPT_FOLLOWLOCATION, false );
 		curl_setopt( $handle, CURLOPT_BUFFERSIZE, 1160 );
 
-		if ( ! empty( $parsed_args['decompress'] ) ) {
-			curl_setopt( $handle, CURLOPT_ENCODING, '' );
-		}
-
-		if ( ! empty( $parsed_args['sslverify'] ) ) {
-			$is_local   = function_exists( 'wp_is_local_url' ) && wp_is_local_url( $url );
-			$ssl_verify = $parsed_args['sslcertificates'];
+			if ( ! empty( $parsed_args['sslverify'] ) ) {
+				$is_local   = function_exists( 'wp_is_local_url' ) && wp_is_local_url( $url );
+				$ssl_verify = $parsed_args['sslcertificates'];
 
 			if ( $is_local ) {
 				$ssl_verify = apply_filters( 'https_local_ssl_verify', $ssl_verify, $url );
@@ -374,15 +379,34 @@ final class Streaming_HTTP_Client_Service {
 				}
 		}
 
-		if ( ! empty( $parsed_args['headers'] ) ) {
-			$curl_headers = array();
+			if ( ! empty( $parsed_args['headers'] ) ) {
+				$curl_request_headers = $parsed_args['headers'];
 
-			foreach ( $parsed_args['headers'] as $name => $value ) {
-				$curl_headers[] = "{$name}: {$value}";
+				/*
+				 * Streaming requests should avoid the Expect: 100-Continue preflight
+				 * and avoid transparent compression. Both can delay or batch small
+				 * chunks in ways that make token streaming appear non-incremental.
+				 */
+				if (
+					null !== $parsed_args['body'] &&
+					'' !== $parsed_args['body'] &&
+					! $this->has_header_named( $curl_request_headers, 'Expect' )
+				) {
+					$curl_request_headers['Expect'] = '';
+				}
+
+				if ( ! $this->has_header_named( $curl_request_headers, 'Accept-Encoding' ) ) {
+					$curl_request_headers['Accept-Encoding'] = 'identity';
+				}
+
+				$curl_headers = array();
+
+				foreach ( $curl_request_headers as $name => $value ) {
+					$curl_headers[] = '' === (string) $value ? "{$name}:" : "{$name}: {$value}";
+				}
+
+				curl_setopt( $handle, CURLOPT_HTTPHEADER, $curl_headers );
 			}
-
-			curl_setopt( $handle, CURLOPT_HTTPHEADER, $curl_headers );
-		}
 
 		if ( '1.0' === (string) $parsed_args['httpversion'] ) {
 			curl_setopt( $handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0 );
@@ -756,6 +780,23 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
+	 * Whether the header array already contains the requested header name.
+	 *
+	 * @param array<string, string> $headers Headers.
+	 * @param string               $header  Header name.
+	 * @return bool
+	 */
+	private function has_header_named( array $headers, string $header ): bool {
+		foreach ( $headers as $name => $value ) {
+			if ( strtolower( $name ) === strtolower( $header ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Converts a PSR-7 request body to a string.
 	 *
 	 * @param object $request PSR-7 request.
@@ -803,19 +844,98 @@ final class Streaming_HTTP_Client_Service {
 		}
 
 		if ( ! empty( $response['_body_resource'] ) && is_resource( $response['_body_resource'] ) ) {
-			if ( method_exists( $this->stream_factory, 'createStreamFromResource' ) ) {
-				$stream       = $this->stream_factory->createStreamFromResource( $response['_body_resource'] );
-				$psr_response = $psr_response->withBody( $stream );
-			} else {
-				$resource_body = stream_get_contents( $response['_body_resource'] );
-				$psr_response  = $psr_response->withBody( $this->stream_factory->createStream( (string) $resource_body ) );
-				fclose( $response['_body_resource'] );
+			$resource_body = $this->read_response_body_resource( $response['_body_resource'] );
+			fclose( $response['_body_resource'] );
+
+			$resource_body = $this->normalize_streamed_response_body( $resource_body, $contract );
+
+			if ( '' !== $resource_body ) {
+				$psr_response = $psr_response->withBody( $this->stream_factory->createStream( $resource_body ) );
 			}
 		} elseif ( is_string( $body ) && '' !== $body ) {
+			$body         = $this->normalize_streamed_response_body( $body, $contract );
 			$psr_response = $psr_response->withBody( $this->stream_factory->createStream( $body ) );
 		}
 
 		return $psr_response;
+	}
+
+	/**
+	 * Reads a response body resource into a string.
+	 *
+	 * @param resource $resource Response body resource.
+	 * @return string
+	 */
+	private function read_response_body_resource( $resource ): string {
+		rewind( $resource );
+
+		$body = stream_get_contents( $resource );
+
+		if ( false === $body ) {
+			return '';
+		}
+
+		return (string) $body;
+	}
+
+	/**
+	 * Normalizes captured SSE output back into a final JSON response body.
+	 *
+	 * OpenAI's Responses API streams server-sent events such as
+	 * `response.output_text.delta` and ends with a `response.completed` event
+	 * that contains the full response object. The provider parser expects the
+	 * final non-streamed response shape, so we extract that completed response
+	 * object and re-encode it as plain JSON for the PSR response body.
+	 *
+	 * @param string               $body     Raw captured response body.
+	 * @param array<string, mixed> $contract Streaming contract.
+	 * @return string
+	 */
+	private function normalize_streamed_response_body( string $body, array $contract ): string {
+		if ( '' === $body || 'sse' !== ( $contract['mode'] ?? null ) ) {
+			return $body;
+		}
+
+		$decoded = json_decode( $body, true );
+
+		if ( JSON_ERROR_NONE === json_last_error() && is_array( $decoded ) ) {
+			return $body;
+		}
+
+		$parser            = new SSE_Parser();
+		$terminal_response = null;
+		$latest_response   = null;
+		$normalized_body   = substr( $body, -2 ) === "\n\n" ? $body : $body . "\n\n";
+		$events            = $parser->push( $normalized_body );
+
+		foreach ( $events as $event ) {
+			if ( ! $event instanceof SSE_Event || $event->is_done() ) {
+				continue;
+			}
+
+			$data = $event->get_json_data();
+
+			if ( ! is_array( $data ) || empty( $data['response'] ) || ! is_array( $data['response'] ) ) {
+				continue;
+			}
+
+			$type            = isset( $data['type'] ) && is_string( $data['type'] ) ? $data['type'] : $event->get_event();
+			$latest_response = $data['response'];
+
+			if ( in_array( $type, array( 'response.completed', 'response.failed', 'response.incomplete' ), true ) ) {
+				$terminal_response = $data['response'];
+			}
+		}
+
+		$normalized = is_array( $terminal_response ) ? $terminal_response : $latest_response;
+
+		if ( ! is_array( $normalized ) ) {
+			return $body;
+		}
+
+		$json = wp_json_encode( $normalized );
+
+		return false !== $json && '' !== $json ? $json : $body;
 	}
 
 	/**

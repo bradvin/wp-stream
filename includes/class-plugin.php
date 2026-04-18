@@ -27,6 +27,13 @@ final class Plugin {
 	private static $registered = false;
 
 	/**
+	 * Whether the default AI registry transporter was synchronized.
+	 *
+	 * @var bool
+	 */
+	private static $transport_synced = false;
+
+	/**
 	 * Bootstraps the plugin.
 	 *
 	 * @return void
@@ -49,11 +56,90 @@ final class Plugin {
 			Admin_Chat_Page::init();
 		}
 
-		if ( class_exists( '\WordPress\AiClientDependencies\Psr\Http\Message\RequestInterface' ) ) {
+		if ( interface_exists( '\WordPress\AiClientDependencies\Psr\Http\Message\RequestInterface' ) ) {
 			self::register_discovery_strategy();
+			self::synchronize_default_registry_transport();
 		}
 
-		add_action( 'plugins_loaded', array( __CLASS__, 'register_discovery_strategy' ), 0 );
+		add_action( 'plugins_loaded', array( __CLASS__, 'late_bootstrap' ), 0 );
+	}
+
+	/**
+	 * Runs follow-up bootstrap work once all plugin files are loaded.
+	 *
+	 * @return void
+	 */
+	public static function late_bootstrap(): void {
+		self::register_discovery_strategy();
+		self::synchronize_default_registry_transport();
+	}
+
+	/**
+	 * Returns diagnostics for the currently active AI Client HTTP transport.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function get_transport_diagnostics(): array {
+		$diagnostics = array(
+			'registered'               => self::$registered,
+			'transport_synced'         => self::$transport_synced,
+			'registry_class'           => null,
+			'transporter_class'        => null,
+			'client_class'             => null,
+			'is_streaming_client'      => false,
+			'is_streaming_transporter' => false,
+			'is_active'                => false,
+			'message'                  => '',
+		);
+
+		if ( ! class_exists( '\WordPress\AiClient\AiClient' ) ) {
+			$diagnostics['message'] = 'WordPress AI Client is not available.';
+			return $diagnostics;
+		}
+
+		try {
+			$registry                      = \WordPress\AiClient\AiClient::defaultRegistry();
+			$diagnostics['registry_class'] = get_class( $registry );
+
+			if ( ! method_exists( $registry, 'getHttpTransporter' ) ) {
+				$diagnostics['message'] = 'The default AI registry does not expose an HTTP transporter.';
+				return $diagnostics;
+			}
+
+			$transporter = $registry->getHttpTransporter();
+
+			if ( ! is_object( $transporter ) ) {
+				$diagnostics['message'] = 'The default AI registry returned an invalid transporter.';
+				return $diagnostics;
+			}
+
+			$diagnostics['transporter_class']        = get_class( $transporter );
+			$diagnostics['is_streaming_transporter'] = $transporter instanceof \WordPress\AiClient\Providers\Http\HttpTransporter;
+
+			$client = self::read_object_property( $transporter, 'client' );
+
+			if ( is_object( $client ) ) {
+				$diagnostics['client_class']        = get_class( $client );
+				$diagnostics['is_streaming_client'] = $client instanceof \WP_Stream\Core\HTTP_Client || $client instanceof \WP_Stream\Legacy\HTTP_Client;
+			}
+
+			$diagnostics['is_active'] = $diagnostics['is_streaming_client'];
+
+			if ( $diagnostics['is_active'] ) {
+				$diagnostics['message'] = 'WP Stream transport is active for the default AI Client registry.';
+			} elseif ( $diagnostics['client_class'] ) {
+				$diagnostics['message'] = sprintf(
+					'WP Stream transport is not active. The default AI Client registry is currently using %s.',
+					$diagnostics['client_class']
+				);
+			} else {
+				$diagnostics['message'] = 'WP Stream could not confirm the active AI Client HTTP client.';
+			}
+		} catch ( \Throwable $throwable ) {
+			$diagnostics['message'] = $throwable->getMessage();
+		}
+
+		return $diagnostics;
 	}
 
 	/**
@@ -66,7 +152,7 @@ final class Plugin {
 			return;
 		}
 
-		if ( class_exists( '\WordPress\AiClientDependencies\Psr\Http\Message\RequestInterface' ) ) {
+		if ( interface_exists( '\WordPress\AiClientDependencies\Psr\Http\Message\RequestInterface' ) ) {
 			require_once __DIR__ . '/core/class-http-client.php';
 			require_once __DIR__ . '/core/class-discovery-strategy.php';
 
@@ -85,5 +171,66 @@ final class Plugin {
 			Legacy\Discovery_Strategy::init();
 			self::$registered = true;
 		}
+	}
+
+	/**
+	 * Forces the default AI Client registry to use the streaming-aware transporter.
+	 *
+	 * Relying on HTTPlug discovery order alone is not sufficient, because another
+	 * plugin can instantiate the default registry and cache a non-streaming
+	 * transporter before this plugin gets a chance to prepend its strategy.
+	 *
+	 * @return void
+	 */
+	private static function synchronize_default_registry_transport(): void {
+		if ( self::$transport_synced ) {
+			return;
+		}
+
+		if (
+			! class_exists( '\WordPress\AiClient\AiClient' ) ||
+			! class_exists( '\WordPress\AiClient\Providers\Http\HttpTransporter' ) ||
+			! class_exists( '\WordPress\AiClientDependencies\Nyholm\Psr7\Factory\Psr17Factory' ) ||
+			! class_exists( '\WP_AI_Client_HTTP_Client' )
+		) {
+			return;
+		}
+
+		require_once __DIR__ . '/core/class-http-client.php';
+
+		$psr17_factory = new \WordPress\AiClientDependencies\Nyholm\Psr7\Factory\Psr17Factory();
+		$client        = new Core\HTTP_Client( $psr17_factory, $psr17_factory );
+		$transporter   = new \WordPress\AiClient\Providers\Http\HttpTransporter(
+			$client,
+			$psr17_factory,
+			$psr17_factory
+		);
+
+		\WordPress\AiClient\AiClient::defaultRegistry()->setHttpTransporter( $transporter );
+		self::$transport_synced = true;
+	}
+
+	/**
+	 * Reads a property from an object or one of its parents via reflection.
+	 *
+	 * @param object $object Object instance.
+	 * @param string $name   Property name.
+	 * @return mixed|null
+	 */
+	private static function read_object_property( $object, string $name ) {
+		$reflection = new \ReflectionObject( $object );
+
+		while ( $reflection ) {
+			if ( $reflection->hasProperty( $name ) ) {
+				$property = $reflection->getProperty( $name );
+				$property->setAccessible( true );
+
+				return $property->getValue( $object );
+			}
+
+			$reflection = $reflection->getParentClass();
+		}
+
+		return null;
 	}
 }

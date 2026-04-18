@@ -11,6 +11,8 @@ See also: `03-usage-guide.md` for concrete integration examples.
 - Added a standalone plugin entrypoint in `wp-stream.php`.
 - Added environment detection in `includes/class-plugin.php`.
 - The plugin now registers a higher-priority HTTPlug discovery strategy on `plugins_loaded`.
+- The transport diagnostics now treat the active HTTP client as the source of truth for the admin demo health check.
+- A false warning on the demo page was fixed by checking the core PSR request dependency with `interface_exists()` instead of `class_exists()`.
 
 ### Discovery override
 
@@ -38,9 +40,19 @@ See also: `03-usage-guide.md` for concrete integration examples.
 
 - Added a minimal wp-admin chat page under `Tools > WP Stream Chat`.
 - The page uses a small browser-side transcript only, with no persistence layer yet.
-- Requests are sent to `admin-ajax.php` and streamed back as newline-delimited JSON frames.
+- Requests are sent to `admin-ajax.php` and streamed back as `text/event-stream` frames.
 - The server converts the browser transcript into real AI client `Message` objects, runs `wp_stream_generate_result()`, forwards streamed deltas to the browser, and still finishes with the final `GenerativeAiResult`.
 - The demo now explicitly uses a longer request timeout budget so longer streamed generations do not fail after the SDK's fallback 5-second timeout.
+- After comparing the behavior with a simpler direct streaming implementation, the demo was updated to stream back to the browser as real `text/event-stream` frames rather than NDJSON, because that is more likely to flush incrementally in local PHP/web server stacks.
+- The admin response path now also disables gzip more aggressively, forces identity encoding headers, and pads each SSE flush because some local PHP stacks still buffer small writes.
+
+### Streaming transport follow-up
+
+- After comparing the plugin transport against a simpler direct cURL streaming setup, the streaming client now suppresses `Expect: 100-Continue` for streaming requests and forces `Accept-Encoding: identity` instead of opting into transparent decompression.
+- The streaming request path also now forces HTTP/1.1 for opted-in streaming requests instead of inheriting WordPress's usual HTTP/1.0 fallback.
+- Those changes keep the streaming request path closer to the simple cURL setup that is known to flush incrementally.
+- For OpenAI Responses streaming, the transport now converts the captured SSE transcript back into the final JSON response object by extracting the terminal `response.completed` payload before the provider parser runs.
+- That normalization is necessary because the OpenAI provider expects the final response body to contain the standard top-level `output` array, not a raw `text/event-stream` transcript.
 
 ### Temporary plugin-side streaming contract
 

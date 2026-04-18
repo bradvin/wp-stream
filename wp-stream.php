@@ -3,7 +3,7 @@
  * Plugin Name: WP Stream
  * Description: Adds plugin-side streaming support to the WordPress AI client HTTP adapter without patching WordPress core.
  * Version: 0.1.0
- * Author: OpenAI
+ * Author: bradvin
  */
 
 defined( 'ABSPATH' ) || exit;

@@ -3,6 +3,16 @@
 	margin: 0 0 20px;
 }
 
+.wp-stream-admin__transport-check {
+	max-width: 1200px;
+	margin: 0 0 20px;
+}
+
+.wp-stream-admin__transport-meta {
+	margin-top: 8px;
+	color: #50575e;
+}
+
 .wp-stream-admin__grid {
 	display: grid;
 	grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
@@ -110,6 +120,11 @@
 .wp-stream-chat__actions .spinner {
 	float: none;
 	margin: 0;
+}
+
+.wp-stream-chat__transport-warning {
+	margin: 12px 0 0;
+	color: #8a2424;
 }
 
 .wp-stream-chat-settings__field + .wp-stream-chat-settings__field,

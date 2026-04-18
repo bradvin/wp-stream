@@ -151,7 +151,7 @@
 			credentials: 'same-origin',
 			headers: {
 				'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-				'Accept': 'application/x-ndjson',
+				'Accept': 'text/event-stream',
 			},
 			body: new URLSearchParams( {
 				action: config.action,
@@ -184,45 +184,75 @@
 			throw new Error( 'The browser did not expose a readable response stream.' );
 		}
 
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = '';
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
 
-		while ( true ) {
+			while ( true ) {
 			const { done, value } = await reader.read();
 
 			buffer += decoder.decode( value || new Uint8Array(), { stream: ! done } );
 
-			const lines = buffer.split( '\n' );
-			buffer = lines.pop() || '';
+				const blocks = buffer.split( '\n\n' );
+				buffer = blocks.pop() || '';
+
+				blocks.forEach( ( block ) => {
+					const parsedBlock = parseSseBlock( block );
+
+					if ( ! parsedBlock ) {
+						return;
+					}
+
+					handleStreamFrame( parsedBlock );
+				} );
+
+				if ( done ) {
+					if ( buffer.trim() ) {
+						const parsedBlock = parseSseBlock( buffer );
+
+						if ( parsedBlock ) {
+							handleStreamFrame( parsedBlock );
+						}
+					}
+
+					break;
+				}
+			}
+		};
+
+		const parseSseBlock = ( block ) => {
+			const lines = block.split( '\n' );
+			let type = 'message';
+			const dataLines = [];
 
 			lines.forEach( ( line ) => {
-				const trimmed = line.trim();
-
-				if ( ! trimmed ) {
+				if ( ! line || line.startsWith( ':' ) ) {
 					return;
 				}
 
-				try {
-					handleStreamFrame( JSON.parse( trimmed ) );
-				} catch ( error ) {
-					console.error( 'Invalid stream frame', error, trimmed );
+				if ( line.startsWith( 'event:' ) ) {
+					type = line.slice( 6 ).trim() || type;
+					return;
+				}
+
+				if ( line.startsWith( 'data:' ) ) {
+					dataLines.push( line.slice( 5 ).trimStart() );
 				}
 			} );
 
-			if ( done ) {
-				if ( buffer.trim() ) {
-					try {
-						handleStreamFrame( JSON.parse( buffer.trim() ) );
-					} catch ( error ) {
-						console.error( 'Invalid final stream frame', error, buffer.trim() );
-					}
-				}
-
-				break;
+			if ( ! dataLines.length ) {
+				return null;
 			}
-		}
-	};
+
+			const data = dataLines.join( '\n' );
+
+			try {
+				return JSON.parse( data );
+			} catch ( error ) {
+				console.error( 'Invalid SSE frame', error, block );
+				return null;
+			}
+		};
 
 	form.addEventListener( 'submit', async ( event ) => {
 		event.preventDefault();

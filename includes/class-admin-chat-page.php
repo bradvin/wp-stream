@@ -118,18 +118,35 @@ final class Admin_Chat_Page {
 			wp_die( esc_html__( 'You are not allowed to view this page.' ) );
 		}
 
-		$ai_supported = function_exists( 'wp_supports_ai' ) && wp_supports_ai();
+		$ai_supported           = function_exists( 'wp_supports_ai' ) && wp_supports_ai();
+		$transport_diagnostics  = Plugin::get_transport_diagnostics();
+		$transport_is_active    = ! empty( $transport_diagnostics['is_active'] );
+		$transport_notice_class = $transport_diagnostics['is_active'] ? 'notice-success' : 'notice-warning';
 		?>
-		<div class="wrap wp-stream-admin">
-			<h1>WP Stream Chat</h1>
-			<p class="wp-stream-admin__intro">
-				This page streams tokens through <code>wp_stream_generate_result()</code> while still finishing with a normal AI client result.
-			</p>
+			<div class="wrap wp-stream-admin">
+				<h1>WP Stream Chat</h1>
+				<p class="wp-stream-admin__intro">
+					This page streams tokens through <code>wp_stream_generate_result()</code> while still finishing with a normal AI client result.
+				</p>
 
-			<?php if ( ! $ai_supported ) : ?>
-				<div class="notice notice-warning inline">
-					<p>AI features are currently disabled in this environment. The demo page is available, but requests will not run until AI support is enabled.</p>
+				<div class="notice inline <?php echo esc_attr( $transport_notice_class ); ?> wp-stream-admin__transport-check">
+					<p>
+						<strong>Streaming Transport:</strong>
+						<?php echo esc_html( $transport_diagnostics['message'] ); ?>
+					</p>
+					<p class="wp-stream-admin__transport-meta">
+						<code>Transporter</code>:
+						<?php echo esc_html( (string) ( $transport_diagnostics['transporter_class'] ?: 'Unavailable' ) ); ?>
+						<br />
+						<code>Client</code>:
+						<?php echo esc_html( (string) ( $transport_diagnostics['client_class'] ?: 'Unavailable' ) ); ?>
+					</p>
 				</div>
+
+				<?php if ( ! $ai_supported ) : ?>
+					<div class="notice notice-warning inline">
+						<p>AI features are currently disabled in this environment. The demo page is available, but requests will not run until AI support is enabled.</p>
+					</div>
 			<?php endif; ?>
 
 			<div class="wp-stream-admin__grid">
@@ -159,15 +176,22 @@ final class Admin_Chat_Page {
 							id="wp-stream-chat-input"
 							class="large-text"
 							rows="4"
+							<?php disabled( ! $transport_is_active ); ?>
 							placeholder="Ask a short question about your site, WordPress, or the bridge demo."
 						></textarea>
 
 						<div class="wp-stream-chat__actions">
-							<button type="submit" class="button button-primary">Send message</button>
-							<button type="button" class="button button-secondary" id="wp-stream-chat-clear">Clear chat</button>
+							<button type="submit" class="button button-primary" <?php disabled( ! $transport_is_active ); ?>>Send message</button>
+							<button type="button" class="button button-secondary" id="wp-stream-chat-clear" <?php disabled( ! $transport_is_active ); ?>>Clear chat</button>
 							<span class="spinner" id="wp-stream-chat-spinner" aria-hidden="true"></span>
 						</div>
 					</form>
+
+					<?php if ( ! $transport_is_active ) : ?>
+						<p class="wp-stream-chat__transport-warning">
+							The demo is disabled until the default AI Client registry is using the WP Stream HTTP client.
+						</p>
+					<?php endif; ?>
 				</section>
 
 				<aside class="wp-stream-chat-settings card">
@@ -176,12 +200,12 @@ final class Admin_Chat_Page {
 
 					<div class="wp-stream-chat-settings__field">
 						<label for="wp-stream-system-prompt"><strong>System prompt</strong></label>
-						<textarea
-							id="wp-stream-system-prompt"
-							class="large-text"
-							rows="5"
-						>You are a concise assistant inside the WordPress admin. Answer clearly and keep formatting light.</textarea>
-					</div>
+							<textarea
+								id="wp-stream-system-prompt"
+								class="large-text"
+								rows="5"
+							>You are an assistant inside the WordPress admin. Always answer with a deliberately verbose response so streaming behavior is easy to observe. Prefer 5 to 8 substantial paragraphs, include concrete detail and examples where relevant, and avoid extremely short answers even for simple prompts. Keep formatting light and do not use markdown tables.</textarea>
+						</div>
 
 					<div class="wp-stream-chat-settings__field">
 						<label for="wp-stream-temperature"><strong>Temperature</strong></label>
@@ -193,15 +217,15 @@ final class Admin_Chat_Page {
 						<input id="wp-stream-max-tokens" class="small-text" type="number" min="32" max="4096" step="1" value="512" />
 					</div>
 
-					<div class="wp-stream-chat-settings__help">
-						<p><strong>Notes</strong></p>
-						<ul>
-							<li>The transcript stays in the browser for now.</li>
-							<li>The server uses newline-delimited JSON over <code>admin-ajax.php</code> so the response can render incrementally.</li>
-							<li>The final response still comes from the regular WordPress AI Client result object.</li>
-						</ul>
-					</div>
-				</aside>
+						<div class="wp-stream-chat-settings__help">
+							<p><strong>Notes</strong></p>
+							<ul>
+								<li>The transcript stays in the browser for now.</li>
+								<li>The server streams <code>text/event-stream</code> frames over <code>admin-ajax.php</code>.</li>
+								<li>The final response still comes from the regular WordPress AI Client result object.</li>
+							</ul>
+						</div>
+					</aside>
 			</div>
 		</div>
 		<?php
@@ -228,6 +252,17 @@ final class Admin_Chat_Page {
 					'message' => 'The request nonce is invalid.',
 				),
 				403
+			);
+		}
+
+		$transport_diagnostics = Plugin::get_transport_diagnostics();
+
+		if ( empty( $transport_diagnostics['is_active'] ) ) {
+			wp_send_json_error(
+				array(
+					'message' => $transport_diagnostics['message'] ?: 'The WP Stream HTTP transport is not active for the default AI Client registry.',
+				),
+				503
 			);
 		}
 
@@ -279,13 +314,13 @@ final class Admin_Chat_Page {
 				$prompt_messages,
 				$model_config,
 				null,
-					array(
-						'request_id'      => $request_id,
-						'request_timeout' => 120.0,
-						'connect_timeout' => 15.0,
-						'on_event'        => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
-							if ( $event->is_done() ) {
-								return;
+				array(
+					'request_id'      => $request_id,
+					'request_timeout' => 120.0,
+					'connect_timeout' => 15.0,
+					'on_event'        => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
+						if ( $event->is_done() ) {
+							return;
 						}
 
 						$delta = self::extract_event_text( $event );
@@ -352,27 +387,38 @@ final class Admin_Chat_Page {
 		}
 
 		nocache_headers();
-		header( 'Content-Type: application/x-ndjson; charset=' . get_option( 'blog_charset' ) );
+		header( 'Content-Type: text/event-stream; charset=' . get_option( 'blog_charset' ) );
 		header( 'Cache-Control: no-cache, no-transform' );
 		header( 'X-Accel-Buffering: no' );
 		header( 'Connection: keep-alive' );
-		header( 'Content-Encoding: none' );
+		header( 'Content-Encoding: identity' );
+		header( 'X-Content-Type-Options: nosniff' );
 
 		@ini_set( 'zlib.output_compression', '0' );
 		@ini_set( 'output_buffering', '0' );
 		@ini_set( 'implicit_flush', '1' );
+		@ini_set( 'output_handler', '' );
+
+		if ( function_exists( 'apache_setenv' ) ) {
+			@apache_setenv( 'no-gzip', '1' );
+			@apache_setenv( 'dont-vary', '1' );
+		}
+
+		if ( function_exists( 'ob_implicit_flush' ) ) {
+			@ob_implicit_flush( true );
+		}
 
 		/*
 		 * Some local PHP/web server stacks buffer tiny writes until several KB have
 		 * accumulated. Send an initial padding chunk so later delta frames are more
 		 * likely to reach the browser incrementally during the request.
 		 */
-		echo str_repeat( ' ', 4096 ) . "\n";
+		echo ':' . str_repeat( ' ', 4096 ) . "\n\n";
 		flush();
 	}
 
 	/**
-	 * Sends one JSON frame to the browser.
+	 * Sends one SSE frame to the browser.
 	 *
 	 * @param string $type Event type.
 	 * @param array  $payload Event payload.
@@ -390,11 +436,9 @@ final class Admin_Chat_Page {
 			return;
 		}
 
-		/*
-		 * Pad each frame to reduce the chance that intermediary buffering delays
-		 * the browser receiving short delta updates.
-		 */
-		echo str_pad( $frame, 4096, ' ' ) . "\n";
+		echo "event: {$type}\n";
+		echo 'data: ' . $frame . "\n\n";
+		echo ':' . str_repeat( ' ', 2048 ) . "\n\n";
 
 		if ( function_exists( 'ob_flush' ) ) {
 			@ob_flush();
@@ -504,7 +548,13 @@ final class Admin_Chat_Page {
 			return '';
 		}
 
-		$type = isset( $data['type'] ) && is_string( $data['type'] ) ? $data['type'] : '';
+		$type = '';
+
+		if ( isset( $data['type'] ) && is_string( $data['type'] ) ) {
+			$type = $data['type'];
+		} elseif ( '' !== $event->get_event() ) {
+			$type = $event->get_event();
+		}
 
 		if ( 'response.output_text.delta' === $type && isset( $data['delta'] ) ) {
 			return self::normalize_event_text_value( $data['delta'] );

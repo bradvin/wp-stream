@@ -422,7 +422,8 @@ It is intentionally small:
 - the transcript lives in the browser only
 - the UI posts the transcript to `admin-ajax.php`
 - the server rebuilds that transcript into AI client `Message` objects
-- the browser reads newline-delimited JSON frames from the response body and paints the assistant text incrementally
+- the browser reads `text/event-stream` frames from the response body and paints the assistant text incrementally
+- the server-side delta extractor checks both the JSON `type` field and the SSE `event:` name for OpenAI Responses text delta events
 
 This page is useful as a working reference because it shows the exact bridge pattern in a real WordPress admin request:
 
