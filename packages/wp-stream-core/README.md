@@ -1,8 +1,8 @@
 # WP Stream Core
 
-`bradvin/wp-stream-core` is the reusable Composer runtime behind the `WP Stream` plugin.
+`bradvin/wp-stream-core` is a WordPress 7 streaming adapter package designed to read like a small extension of core’s AI client layer.
 
-It exposes the streaming transport, SSE parsing, and `Ai_Client_Bridge` helpers without any plugin-specific UI or asset concerns.
+It exposes core-style `WP_AI_*` classes and helper functions, while leaving initialization explicit so callers can bootstrap it early in their own plugin load order.
 
 ## Install
 
@@ -10,22 +10,32 @@ It exposes the streaming transport, SSE parsing, and `Ai_Client_Bridge` helpers 
 composer require bradvin/wp-stream-core
 ```
 
-## Usage
+## Bootstrap
 
-Call `WP_Stream\Integration\Runtime::register()` during your plugin bootstrap, then use `WP_Stream\Ai_Client_Bridge::generateResult()` in the normal AI client flow.
+Initialize the discovery strategy during your plugin bootstrap, before you start registering or using AI providers:
 
 ```php
-use WP_Stream\Ai_Client_Bridge;
-use WP_Stream\Integration\Runtime;
+WP_AI_Client_Streaming_Discovery_Strategy::init();
+```
 
-Runtime::register();
+## Usage
 
-$result = Ai_Client_Bridge::generateResult(
+Use the streaming-aware prompt helper directly:
+
+```php
+$result = wp_ai_client_stream_prompt(
 	$prompt_messages,
-	$model_config,
-	null,
 	array(
 		'streaming_enabled' => true,
 	)
-);
+)
+	->using_model_config( $model_config )
+	->generate_result();
+```
+
+Or wrap an existing core prompt builder:
+
+```php
+$builder = wp_ai_client_prompt( $prompt_messages )->using_model_config( $model_config );
+$result  = wp_ai_client_stream( $builder, array( 'streaming_enabled' => true ) )->generate_result();
 ```

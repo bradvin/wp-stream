@@ -1,52 +1,66 @@
 <?php
 /**
- * SSE event value object.
+ * WP AI Client: WP_AI_Client_SSE_Event class
  *
- * @package WP_Stream
+ * @package WordPress
+ * @subpackage AI
+ * @since 0.2.0
  */
 
-namespace WP_Stream;
+if ( class_exists( 'WP_AI_Client_SSE_Event', false ) ) {
+	return;
+}
 
 /**
- * Represents a single parsed server-sent event.
+ * Value object representing a parsed server-sent event.
+ *
+ * @since 0.2.0
+ * @internal Intended only to support the streaming HTTP adapter.
+ * @access private
  */
-final class SSE_Event {
+class WP_AI_Client_SSE_Event {
 
 	/**
 	 * Event name.
 	 *
+	 * @since 0.2.0
 	 * @var string
 	 */
-	private $event;
+	private string $event;
 
 	/**
 	 * Event payload.
 	 *
+	 * @since 0.2.0
 	 * @var string
 	 */
-	private $data;
+	private string $data;
 
 	/**
-	 * Event ID.
+	 * Event identifier.
 	 *
+	 * @since 0.2.0
 	 * @var string
 	 */
-	private $id;
+	private string $id;
 
 	/**
 	 * Retry timeout in milliseconds.
 	 *
+	 * @since 0.2.0
 	 * @var int|null
 	 */
-	private $retry;
+	private ?int $retry;
 
 	/**
 	 * Constructor.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @param string   $event Event name.
-	 * @param string   $data  Event data.
+	 * @param string   $data  Event payload.
 	 * @param string   $id    Event identifier.
-	 * @param int|null $retry Event retry value.
+	 * @param int|null $retry Retry timeout in milliseconds.
 	 */
 	public function __construct( string $event, string $data, string $id = '', ?int $retry = null ) {
 		$this->event = $event;
@@ -58,6 +72,8 @@ final class SSE_Event {
 	/**
 	 * Gets the event name.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @return string
 	 */
 	public function get_event(): string {
@@ -66,6 +82,8 @@ final class SSE_Event {
 
 	/**
 	 * Gets the event payload.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @return string
 	 */
@@ -76,6 +94,8 @@ final class SSE_Event {
 	/**
 	 * Gets the event identifier.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @return string
 	 */
 	public function get_id(): string {
@@ -83,7 +103,9 @@ final class SSE_Event {
 	}
 
 	/**
-	 * Gets the retry value.
+	 * Gets the retry timeout.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @return int|null
 	 */
@@ -92,7 +114,9 @@ final class SSE_Event {
 	}
 
 	/**
-	 * Whether this event is the OpenAI-style end marker.
+	 * Returns whether the event is a terminal [DONE] marker.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @return bool
 	 */
@@ -101,7 +125,9 @@ final class SSE_Event {
 	}
 
 	/**
-	 * Returns JSON-decoded data if the payload is valid JSON.
+	 * Returns JSON-decoded event data when available.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @return mixed
 	 */
@@ -117,6 +143,8 @@ final class SSE_Event {
 
 	/**
 	 * Converts the event to an array.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @return array<string, int|string|null>
 	 */

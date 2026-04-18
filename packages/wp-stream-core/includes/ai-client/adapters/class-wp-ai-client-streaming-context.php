@@ -1,92 +1,48 @@
 <?php
 /**
- * Streaming bridge for AiClient::generateResult().
+ * WP AI Client: WP_AI_Client_Streaming_Context class
  *
- * @package WP_Stream
+ * @package WordPress
+ * @subpackage AI
+ * @since 0.2.0
  */
 
-namespace WP_Stream;
+use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
+
+if ( class_exists( 'WP_AI_Client_Streaming_Context', false ) ) {
+	return;
+}
 
 /**
- * Wraps AI client calls so the existing generateResult() path can stream via transport hooks.
+ * Manages per-request streaming state for the WordPress AI client.
+ *
+ * @since 0.2.0
+ * @internal Intended only to coordinate the streaming prompt helper with the HTTP adapter.
+ * @access private
  */
-final class Ai_Client_Bridge {
+class WP_AI_Client_Streaming_Context {
 
 	/**
-	 * Active bridge contexts.
+	 * Active streaming contexts keyed by a unique internal ID.
 	 *
+	 * @since 0.2.0
 	 * @var array<string, array<string, mixed>>
 	 */
-	private static $contexts = array();
+	private static array $contexts = array();
 
 	/**
-	 * Executes AiClient::generateResult() with streaming callbacks enabled.
+	 * Runs a callback with streaming enabled for the first matching outbound AI request.
 	 *
-	 * Supported `$stream_args` keys include:
-	 * - `streaming_enabled` (bool): master switch for bridge attachment.
-	 * - `mode` (`sse` or `raw`): streaming mode to request.
-	 * - `request_id` (string): stable ID shared with transport callbacks.
-	 * - `request_options` (RequestOptions): explicit request options override.
-	 * - `request_timeout`, `connect_timeout`, `max_redirects`: request option shorthands.
-	 * - `request_matcher`, `payload_mutator`, `on_chunk`, `on_event`, `on_complete`,
-	 *   `on_error`, and `should_continue`: streaming callbacks and customizers.
-	 *
-	 * @param mixed                $prompt          Prompt passed to the AI client.
-	 * @param mixed                $model_or_config Model or config passed to the AI client.
-	 * @param mixed                $registry        Optional provider registry.
-	 * @param array<string, mixed> $stream_args     Streaming bridge options.
-	 * @return mixed
-	 */
-	public static function generateResult( $prompt, $model_or_config, $registry = null, array $stream_args = array() ) {
-		if ( ! class_exists( '\WordPress\AiClient\AiClient' ) ) {
-			throw new \RuntimeException( 'WordPress\\AiClient\\AiClient is not available in this environment.' );
-		}
-
-		$stream_args['capture_body'] = true;
-		$request_options            = self::build_generate_result_request_options( $stream_args );
-
-		return self::with_streaming(
-			static function () use ( $prompt, $model_or_config, $registry, $request_options ) {
-				$builder = \WordPress\AiClient\AiClient::prompt( $prompt, $registry );
-
-				if ( $model_or_config instanceof \WordPress\AiClient\Providers\Models\Contracts\ModelInterface ) {
-					$builder->usingModel( $model_or_config );
-				} elseif ( $model_or_config instanceof \WordPress\AiClient\Providers\Models\DTO\ModelConfig ) {
-					$builder->usingModelConfig( $model_or_config );
-				} elseif ( null !== $model_or_config ) {
-					throw new \InvalidArgumentException(
-						sprintf(
-							'Model or config must be an instance of %1$s, %2$s, or null.',
-							'\WordPress\AiClient\Providers\Models\Contracts\ModelInterface',
-							'\WordPress\AiClient\Providers\Models\DTO\ModelConfig'
-						)
-					);
-				}
-
-				if ( null !== $request_options ) {
-					$builder->usingRequestOptions( $request_options );
-				}
-
-				return $builder->generateResult();
-			},
-			$stream_args
-		);
-	}
-
-	/**
-	 * Runs an arbitrary callback with the bridge active.
-	 *
-	 * The bridge attaches to the first matching outbound AI request during the callback
-	 * and forwards streaming events through the supplied callbacks.
+	 * @since 0.2.0
 	 *
 	 * @param callable             $callback    Callback to execute.
-	 * @param array<string, mixed> $stream_args Streaming bridge options.
+	 * @param array<string, mixed> $stream_args Streaming options.
 	 * @return mixed
 	 */
 	public static function with_streaming( callable $callback, array $stream_args = array() ) {
-		$context                         = self::normalize_stream_args( $stream_args );
+		$context                          = self::normalize_stream_args( $stream_args );
 		self::$contexts[ $context['id'] ] = $context;
-		$listeners                       = self::register_listeners( $context );
+		$listeners                        = self::register_listeners( $context );
 
 		try {
 			return $callback();
@@ -97,15 +53,72 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Applies the active bridge context to a PSR request analysis.
+	 * Builds request options from streaming arguments when needed.
 	 *
-	 * @param object               $request  PSR-7 request.
-	 * @param array<string, string> $headers Headers.
-	 * @param string|null          $body     Request body.
-	 * @param array<string, mixed> $contract Current contract.
+	 * @since 0.2.0
+	 *
+	 * @param array<string, mixed> $stream_args Streaming options.
+	 * @return RequestOptions|null
+	 */
+	public static function build_request_options( array $stream_args ): ?RequestOptions {
+		$has_request_options = isset( $stream_args['request_options'] ) && $stream_args['request_options'] instanceof RequestOptions;
+		$has_timeout         = array_key_exists( 'request_timeout', $stream_args );
+		$has_connect_timeout = array_key_exists( 'connect_timeout', $stream_args );
+		$has_max_redirects   = array_key_exists( 'max_redirects', $stream_args );
+
+		if ( ! $has_request_options && ! $has_timeout && ! $has_connect_timeout && ! $has_max_redirects ) {
+			return null;
+		}
+
+		$options = $has_request_options ? clone $stream_args['request_options'] : new RequestOptions();
+
+		if ( ! $has_request_options ) {
+			$default_timeout = (float) apply_filters( 'wp_ai_client_default_request_timeout', 30 );
+
+			if ( $default_timeout > 0 ) {
+				$options->setTimeout( $default_timeout );
+			}
+		}
+
+		if ( $has_timeout ) {
+			$timeout = (float) $stream_args['request_timeout'];
+
+			if ( $timeout > 0 ) {
+				$options->setTimeout( $timeout );
+			}
+		}
+
+		if ( $has_connect_timeout ) {
+			$connect_timeout = (float) $stream_args['connect_timeout'];
+
+			if ( $connect_timeout > 0 ) {
+				$options->setConnectTimeout( $connect_timeout );
+			}
+		}
+
+		if ( $has_max_redirects ) {
+			$max_redirects = (int) $stream_args['max_redirects'];
+
+			if ( $max_redirects >= 0 ) {
+				$options->setMaxRedirects( $max_redirects );
+			}
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Applies the active streaming context to an outbound request analysis.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param object                $request  PSR-7 request.
+	 * @param array<string, string> $headers  Request headers.
+	 * @param string|null           $body     Request body.
+	 * @param array<string, mixed>  $contract Existing streaming contract.
 	 * @return array<string, mixed>
 	 */
-	public static function maybe_apply_request_bridge( $request, array $headers, ?string $body, array $contract ): array {
+	public static function maybe_apply_request_context( $request, array $headers, ?string $body, array $contract ): array {
 		$context = self::find_matching_context( $request, $headers, $body );
 
 		if ( null === $context ) {
@@ -124,6 +137,14 @@ final class Ai_Client_Bridge {
 			$headers['Accept'] = 'text/event-stream';
 		}
 
+		$headers['X-WP-AI-Client-Stream']            = '1';
+		$headers['X-WP-AI-Client-Stream-Mode']       = $context['mode'];
+		$headers['X-WP-AI-Client-Stream-Request-Id'] = $context['request_id'];
+
+		if ( empty( $context['capture_body'] ) ) {
+			$headers['X-WP-AI-Client-Stream-Capture'] = '0';
+		}
+
 		$contract['enabled']      = true;
 		$contract['mode']         = $context['mode'];
 		$contract['capture_body'] = ! empty( $context['capture_body'] );
@@ -137,9 +158,11 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Registers temporary callbacks for one bridge run.
+	 * Registers temporary listeners for one streaming run.
 	 *
-	 * @param array<string, mixed> $context Bridge context.
+	 * @since 0.2.0
+	 *
+	 * @param array<string, mixed> $context Streaming context.
 	 * @return array<int, array<string, mixed>>
 	 */
 	private static function register_listeners( array $context ): array {
@@ -154,16 +177,16 @@ final class Ai_Client_Bridge {
 				call_user_func( $context['on_chunk'], $chunk, $stream_context );
 			};
 
-			add_action( 'wp_stream_http_chunk', $listener, 10, 2 );
+			add_action( 'wp_ai_client_stream_chunk', $listener, 10, 2 );
 			$listeners[] = array(
 				'type'     => 'action',
-				'hook'     => 'wp_stream_http_chunk',
+				'hook'     => 'wp_ai_client_stream_chunk',
 				'callback' => $listener,
 			);
 		}
 
 		if ( is_callable( $context['on_event'] ) ) {
-			$listener = static function ( $event, array $stream_context ) use ( $context ) {
+			$listener = static function ( WP_AI_Client_SSE_Event $event, array $stream_context ) use ( $context ) {
 				if ( ! self::matches_request_id( $stream_context, $context['request_id'] ) ) {
 					return;
 				}
@@ -171,10 +194,10 @@ final class Ai_Client_Bridge {
 				call_user_func( $context['on_event'], $event, $stream_context );
 			};
 
-			add_action( 'wp_stream_http_sse_event', $listener, 10, 2 );
+			add_action( 'wp_ai_client_stream_sse_event', $listener, 10, 2 );
 			$listeners[] = array(
 				'type'     => 'action',
-				'hook'     => 'wp_stream_http_sse_event',
+				'hook'     => 'wp_ai_client_stream_sse_event',
 				'callback' => $listener,
 			);
 		}
@@ -188,10 +211,10 @@ final class Ai_Client_Bridge {
 				call_user_func( $context['on_complete'], $response, $stream_context );
 			};
 
-			add_action( 'wp_stream_http_complete', $listener, 10, 2 );
+			add_action( 'wp_ai_client_stream_complete', $listener, 10, 2 );
 			$listeners[] = array(
 				'type'     => 'action',
-				'hook'     => 'wp_stream_http_complete',
+				'hook'     => 'wp_ai_client_stream_complete',
 				'callback' => $listener,
 			);
 		}
@@ -205,10 +228,10 @@ final class Ai_Client_Bridge {
 				call_user_func( $context['on_error'], $message, $stream_context );
 			};
 
-			add_action( 'wp_stream_http_error', $listener, 10, 2 );
+			add_action( 'wp_ai_client_stream_error', $listener, 10, 2 );
 			$listeners[] = array(
 				'type'     => 'action',
-				'hook'     => 'wp_stream_http_error',
+				'hook'     => 'wp_ai_client_stream_error',
 				'callback' => $listener,
 			);
 		}
@@ -222,10 +245,10 @@ final class Ai_Client_Bridge {
 				return (bool) call_user_func( $context['should_continue'], $continue, $payload, $stream_context );
 			};
 
-			add_filter( 'wp_stream_http_continue', $listener, 10, 3 );
+			add_filter( 'wp_ai_client_stream_continue', $listener, 10, 3 );
 			$listeners[] = array(
 				'type'     => 'filter',
-				'hook'     => 'wp_stream_http_continue',
+				'hook'     => 'wp_ai_client_stream_continue',
 				'callback' => $listener,
 			);
 		}
@@ -234,7 +257,9 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Removes temporary callbacks after a bridge run.
+	 * Removes temporary listeners after one streaming run.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<int, array<string, mixed>> $listeners Registered listeners.
 	 * @return void
@@ -251,19 +276,11 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Normalizes stream bridge options.
+	 * Normalizes raw streaming options into a context array.
 	 *
-	 * Recognized keys:
-	 * - `mode` (`sse` or `raw`)
-	 * - `streaming_enabled` (bool)
-	 * - `capture_body` (bool)
-	 * - `inject_stream_parameter` (bool)
-	 * - `request_id` (string)
-	 * - `max_requests` (int)
-	 * - `request_matcher`, `payload_mutator`, `on_chunk`, `on_event`, `on_complete`,
-	 *   `on_error`, `should_continue` (callable|null)
+	 * @since 0.2.0
 	 *
-	 * @param array<string, mixed> $stream_args Raw stream args.
+	 * @param array<string, mixed> $stream_args Raw streaming options.
 	 * @return array<string, mixed>
 	 */
 	private static function normalize_stream_args( array $stream_args ): array {
@@ -272,7 +289,7 @@ final class Ai_Client_Bridge {
 			'streaming_enabled'       => true,
 			'capture_body'            => true,
 			'inject_stream_parameter' => true,
-			'request_id'              => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-stream-', true ),
+			'request_id'              => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-ai-client-stream-', true ),
 			'max_requests'            => 1,
 			'request_matcher'         => null,
 			'payload_mutator'         => null,
@@ -290,23 +307,13 @@ final class Ai_Client_Bridge {
 			$mode = 'sse';
 		}
 
-		$callable_keys = array(
-			'request_matcher',
-			'payload_mutator',
-			'on_chunk',
-			'on_event',
-			'on_complete',
-			'on_error',
-			'should_continue',
-		);
-
-		foreach ( $callable_keys as $key ) {
+		foreach ( array( 'request_matcher', 'payload_mutator', 'on_chunk', 'on_event', 'on_complete', 'on_error', 'should_continue' ) as $key ) {
 			if ( null !== $context[ $key ] && ! is_callable( $context[ $key ] ) ) {
-				throw new \InvalidArgumentException( sprintf( 'The "%s" stream bridge option must be callable.', $key ) );
+				throw new InvalidArgumentException( sprintf( 'The "%s" streaming option must be callable.', $key ) );
 			}
 		}
 
-		$context['id']                = uniqid( 'wp-stream-bridge-', true );
+		$context['id']                = uniqid( 'wp-ai-client-stream-context-', true );
 		$context['mode']              = $mode;
 		$context['streaming_enabled'] = (bool) $context['streaming_enabled'];
 		$context['capture_body']      = (bool) $context['capture_body'];
@@ -317,52 +324,13 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Builds request options for generateResult() wrapper calls.
+	 * Finds the first active context that matches the outbound request.
 	 *
-	 * The core WordPress wrapper sets a 30-second timeout by default, but direct
-	 * AiClient::generateResult() calls do not. Mirror that behavior here so the
-	 * bridge is a safer drop-in for longer streamed responses.
+	 * @since 0.2.0
 	 *
-	 * @param array<string, mixed> $stream_args Stream args.
-	 * @return \WordPress\AiClient\Providers\Http\DTO\RequestOptions|null
-	 */
-	private static function build_generate_result_request_options( array $stream_args ) {
-		if ( isset( $stream_args['request_options'] ) && $stream_args['request_options'] instanceof \WordPress\AiClient\Providers\Http\DTO\RequestOptions ) {
-			return clone $stream_args['request_options'];
-		}
-
-		$timeout         = isset( $stream_args['request_timeout'] ) ? (float) $stream_args['request_timeout'] : null;
-		$connect_timeout = isset( $stream_args['connect_timeout'] ) ? (float) $stream_args['connect_timeout'] : null;
-		$max_redirects   = isset( $stream_args['max_redirects'] ) ? (int) $stream_args['max_redirects'] : null;
-
-		if ( null === $timeout ) {
-			$timeout = (float) apply_filters( 'wp_ai_client_default_request_timeout', 30 );
-		}
-
-		if ( $timeout <= 0 ) {
-			return null;
-		}
-
-		$options = new \WordPress\AiClient\Providers\Http\DTO\RequestOptions();
-		$options->setTimeout( $timeout );
-
-		if ( null !== $connect_timeout && $connect_timeout > 0 ) {
-			$options->setConnectTimeout( $connect_timeout );
-		}
-
-		if ( null !== $max_redirects && $max_redirects >= 0 ) {
-			$options->setMaxRedirects( $max_redirects );
-		}
-
-		return $options;
-	}
-
-	/**
-	 * Finds the first active context that matches the request.
-	 *
-	 * @param object               $request PSR-7 request.
+	 * @param object                $request PSR-7 request.
 	 * @param array<string, string> $headers Headers.
-	 * @param string|null          $body    Request body.
+	 * @param string|null           $body    Body.
 	 * @return array<string, mixed>|null
 	 */
 	private static function find_matching_context( $request, array $headers, ?string $body ): ?array {
@@ -394,12 +362,14 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Whether the context should attach to the current request.
+	 * Returns whether a context should attach to the request.
 	 *
-	 * @param array<string, mixed> $context Context.
-	 * @param object               $request PSR-7 request.
+	 * @since 0.2.0
+	 *
+	 * @param array<string, mixed>  $context Context.
+	 * @param object                $request PSR-7 request.
 	 * @param array<string, string> $headers Headers.
-	 * @param string|null          $body    Request body.
+	 * @param string|null           $body    Body.
 	 * @return bool
 	 */
 	private static function context_matches_request( array $context, $request, array $headers, ?string $body ): bool {
@@ -415,11 +385,13 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Default request matching heuristic for text-generation requests.
+	 * Default request matcher for text-style generation requests.
 	 *
-	 * @param object               $request PSR-7 request.
+	 * @since 0.2.0
+	 *
+	 * @param object                $request PSR-7 request.
 	 * @param array<string, string> $headers Headers.
-	 * @param string|null          $body    Request body.
+	 * @param string|null           $body    Body.
 	 * @return bool
 	 */
 	private static function default_request_matcher( $request, array $headers, ?string $body ): bool {
@@ -449,11 +421,13 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Prepares the outbound request body for provider-side streaming.
+	 * Prepares a JSON request body for provider-side streaming.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
 	 * @param string|null           $body    Original body.
-	 * @param array<string, mixed>  $context Bridge context.
+	 * @param array<string, mixed>  $context Streaming context.
 	 * @return string|null
 	 */
 	private static function prepare_streaming_body( array $headers, ?string $body, array $context ): ?string {
@@ -475,7 +449,7 @@ final class Ai_Client_Bridge {
 			$payload['stream'] = true;
 		}
 
-		$encoded = function_exists( 'wp_json_encode' ) ? wp_json_encode( $payload ) : json_encode( $payload );
+		$encoded = wp_json_encode( $payload );
 
 		return false === $encoded ? $body : $encoded;
 	}
@@ -483,8 +457,10 @@ final class Ai_Client_Bridge {
 	/**
 	 * Decodes a JSON request body when possible.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @param array<string, string> $headers Headers.
-	 * @param string|null           $body    Request body.
+	 * @param string|null           $body    Body.
 	 * @return array<string, mixed>|null
 	 */
 	private static function decode_json_body( array $headers, ?string $body ): ?array {
@@ -502,7 +478,9 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Whether the request looks like JSON.
+	 * Returns whether the request looks like a JSON request.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
 	 * @return bool
@@ -512,10 +490,12 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Whether the given header exists.
+	 * Returns whether the header array already contains a header.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
-	 * @param string               $header  Header name.
+	 * @param string                $header  Header name.
 	 * @return bool
 	 */
 	private static function has_header( array $headers, string $header ): bool {
@@ -529,34 +509,16 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Whether a header contains the requested fragment.
+	 * Removes a header from a header array.
 	 *
-	 * @param array<string, string> $headers  Headers.
-	 * @param string               $header   Header name.
-	 * @param string               $fragment Header fragment.
-	 * @return bool
-	 */
-	private static function header_contains( array $headers, string $header, string $fragment ): bool {
-		foreach ( $headers as $name => $value ) {
-			if ( strtolower( $name ) !== strtolower( $header ) ) {
-				continue;
-			}
-
-			return false !== stripos( (string) $value, $fragment );
-		}
-
-		return false;
-	}
-
-	/**
-	 * Removes a header by name.
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
-	 * @param string               $header  Header name.
+	 * @param string                $header  Header name.
 	 * @return array<string, string>
 	 */
 	private static function remove_header( array $headers, string $header ): array {
-		foreach ( $headers as $name => $value ) {
+		foreach ( array_keys( $headers ) as $name ) {
 			if ( strtolower( $name ) === strtolower( $header ) ) {
 				unset( $headers[ $name ] );
 			}
@@ -566,13 +528,37 @@ final class Ai_Client_Bridge {
 	}
 
 	/**
-	 * Whether the hook context belongs to this bridge run.
+	 * Returns whether a specific header contains a value fragment.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param array<string, string> $headers Headers.
+	 * @param string                $header  Header name.
+	 * @param string                $needle  Value fragment.
+	 * @return bool
+	 */
+	private static function header_contains( array $headers, string $header, string $needle ): bool {
+		foreach ( $headers as $name => $value ) {
+			if ( strtolower( $name ) !== strtolower( $header ) ) {
+				continue;
+			}
+
+			return false !== stripos( $value, $needle );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Returns whether the stream callback context matches the request ID.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, mixed> $stream_context Stream context.
-	 * @param string               $request_id     Expected request ID.
+	 * @param string               $request_id     Request ID.
 	 * @return bool
 	 */
 	private static function matches_request_id( array $stream_context, string $request_id ): bool {
-		return isset( $stream_context['request_id'] ) && $request_id === (string) $stream_context['request_id'];
+		return isset( $stream_context['request_id'] ) && $request_id === $stream_context['request_id'];
 	}
 }

@@ -227,7 +227,7 @@ final class Admin_Chat_Page {
 		if ( $streaming_enabled && empty( $transport_diagnostics['is_active'] ) ) {
 			wp_send_json_error(
 				array(
-					'message' => $transport_diagnostics['message'] ?: __( 'The WP Stream HTTP transport is not active for the default AI Client registry.', 'wp-stream' ),
+					'message' => $transport_diagnostics['message'] ?: __( 'The streaming HTTP adapter is not active for the default AI Client registry.', 'wp-stream' ),
 				),
 				503
 			);
@@ -264,8 +264,8 @@ final class Admin_Chat_Page {
 			);
 		}
 
-		$request_id    = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-stream-demo-', true );
-		$model_config  = self::build_model_config();
+		$request_id     = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-stream-demo-', true );
+		$model_config   = self::build_model_config();
 		$assistant_text = '';
 
 		self::start_stream_response();
@@ -278,16 +278,14 @@ final class Admin_Chat_Page {
 		);
 
 		try {
-			$result = Ai_Client_Bridge::generateResult(
+			$result = wp_ai_client_stream_prompt(
 				$prompt_messages,
-				$model_config,
-				null,
 				array(
 					'request_id'        => $request_id,
 					'request_timeout'   => 120.0,
 					'connect_timeout'   => 15.0,
 					'streaming_enabled' => $streaming_enabled,
-					'on_event'          => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
+					'on_event'          => static function ( \WP_AI_Client_SSE_Event $event, array $context ) use ( &$assistant_text ) {
 						if ( $event->is_done() ) {
 							return;
 						}
@@ -312,7 +310,21 @@ final class Admin_Chat_Page {
 						return ! connection_aborted();
 					},
 				)
-			);
+			)
+				->using_model_config( $model_config )
+				->generate_result();
+
+			if ( is_wp_error( $result ) ) {
+				self::send_stream_frame(
+					'error',
+					array(
+						'requestId' => $request_id,
+						'message'   => $result->get_error_message(),
+					)
+				);
+
+				exit;
+			}
 
 			$final_text = '';
 
@@ -519,10 +531,10 @@ final class Admin_Chat_Page {
 	/**
 	 * Extracts text from a streamed SSE event.
 	 *
-	 * @param SSE_Event $event Event.
+	 * @param \WP_AI_Client_SSE_Event $event Event.
 	 * @return string
 	 */
-	private static function extract_event_text( SSE_Event $event ): string {
+	private static function extract_event_text( \WP_AI_Client_SSE_Event $event ): string {
 		$data = $event->get_json_data();
 
 		if ( ! is_array( $data ) ) {

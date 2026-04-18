@@ -1,29 +1,40 @@
 <?php
 /**
- * SSE parser.
+ * WP AI Client: WP_AI_Client_SSE_Parser class
  *
- * @package WP_Stream
+ * @package WordPress
+ * @subpackage AI
+ * @since 0.2.0
  */
 
-namespace WP_Stream;
+if ( class_exists( 'WP_AI_Client_SSE_Parser', false ) ) {
+	return;
+}
 
 /**
- * Incrementally parses server-sent events from streaming chunks.
+ * Incrementally parses server-sent events from a streamed response.
+ *
+ * @since 0.2.0
+ * @internal Intended only to support the streaming HTTP adapter.
+ * @access private
  */
-final class SSE_Parser {
+class WP_AI_Client_SSE_Parser {
 
 	/**
 	 * Buffered data that has not formed a complete event yet.
 	 *
+	 * @since 0.2.0
 	 * @var string
 	 */
-	private $buffer = '';
+	private string $buffer = '';
 
 	/**
-	 * Pushes a chunk into the parser and returns all complete events.
+	 * Pushes a raw chunk into the parser and returns complete events.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param string $chunk Raw chunk data.
-	 * @return array<int, SSE_Event>
+	 * @return array<int, WP_AI_Client_SSE_Event>
 	 */
 	public function push( string $chunk ): array {
 		$this->buffer .= $chunk;
@@ -46,12 +57,14 @@ final class SSE_Parser {
 	}
 
 	/**
-	 * Parses a single SSE block.
+	 * Parses a single SSE event block.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param string $block Event block.
-	 * @return SSE_Event|null
+	 * @return WP_AI_Client_SSE_Event|null
 	 */
-	private function parse_block( string $block ): ?SSE_Event {
+	private function parse_block( string $block ): ?WP_AI_Client_SSE_Event {
 		$event      = 'message';
 		$id         = '';
 		$retry      = null;
@@ -99,6 +112,6 @@ final class SSE_Parser {
 			return null;
 		}
 
-		return new SSE_Event( $event, implode( "\n", $data_lines ), $id, $retry );
+		return new WP_AI_Client_SSE_Event( $event, implode( "\n", $data_lines ), $id, $retry );
 	}
 }

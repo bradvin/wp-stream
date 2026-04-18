@@ -1,16 +1,16 @@
 {
   "name": "bradvin/wp-stream-core",
-  "description": "Streaming runtime for the WordPress AI client.",
+  "description": "WordPress AI streaming adapter package for WordPress 7 environments.",
   "type": "library",
   "license": "proprietary",
   "version": "0.1.0",
   "require": {
-    "php": ">=7.2.24"
+    "php": ">=7.4"
   },
   "autoload": {
-    "psr-4": {
-      "WP_Stream\\": "src/"
-    }
+    "files": [
+      "load.php"
+    ]
   },
   "config": {
     "optimize-autoloader": true,

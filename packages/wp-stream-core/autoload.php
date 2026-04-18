@@ -1,24 +1,10 @@
 <?php
 /**
- * Development autoloader for the WP Stream core package.
+ * Development loader for the WordPress AI streaming adapter package.
  *
- * @package WP_Stream
+ * @package WordPress
+ * @subpackage AI
+ * @since 0.2.0
  */
 
-spl_autoload_register(
-	static function ( string $class ): void {
-		$prefix = 'WP_Stream\\';
-
-		if ( 0 !== strpos( $class, $prefix ) ) {
-			return;
-		}
-
-		$relative_class = substr( $class, strlen( $prefix ) );
-		$relative_path  = str_replace( '\\', '/', $relative_class ) . '.php';
-		$file           = __DIR__ . '/src/' . $relative_path;
-
-		if ( file_exists( $file ) ) {
-			require_once $file;
-		}
-	}
-);
+require_once __DIR__ . '/load.php';

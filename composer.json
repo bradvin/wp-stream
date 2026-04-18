@@ -1,11 +1,11 @@
 {
   "name": "bradvin/wp-stream",
-  "description": "Thin WordPress plugin wrapper for the WP Stream core runtime.",
+  "description": "Thin WordPress plugin wrapper for the WordPress AI streaming adapter package.",
   "type": "wordpress-plugin",
   "license": "proprietary",
   "version": "0.1.0",
   "require": {
-    "php": ">=7.2.24",
+    "php": ">=7.4",
     "bradvin/wp-stream-core": "^0.1.0"
   },
   "repositories": [

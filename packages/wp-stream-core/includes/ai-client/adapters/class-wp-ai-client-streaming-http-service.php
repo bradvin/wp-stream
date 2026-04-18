@@ -1,52 +1,68 @@
 <?php
 /**
- * Shared streaming HTTP client service.
+ * WP AI Client: WP_AI_Client_Streaming_HTTP_Service class
  *
- * @package WP_Stream
+ * @package WordPress
+ * @subpackage AI
+ * @since 0.2.0
  */
 
-namespace WP_Stream;
+use WordPress\AiClient\Providers\Http\Exception\NetworkException;
+
+if ( class_exists( 'WP_AI_Client_Streaming_HTTP_Service', false ) ) {
+	return;
+}
 
 /**
- * Provides a transport that delegates normal requests and only intercepts streaming ones.
+ * Shared HTTP transport service for the streaming adapter.
+ *
+ * @since 0.2.0
+ * @internal Intended only to support WP_AI_Client_Streaming_HTTP_Client.
+ * @access private
  */
-final class Streaming_HTTP_Client_Service {
+class WP_AI_Client_Streaming_HTTP_Service {
 
 	/**
-	 * Response factory.
+	 * Response factory instance.
 	 *
+	 * @since 0.2.0
 	 * @var object
 	 */
 	private $response_factory;
 
 	/**
-	 * Stream factory.
+	 * Stream factory instance.
 	 *
+	 * @since 0.2.0
 	 * @var object
 	 */
 	private $stream_factory;
 
 	/**
-	 * Base client for non-streaming requests.
+	 * Base HTTP client for non-streaming requests.
 	 *
+	 * @since 0.2.0
 	 * @var object
 	 */
 	private $base_client;
 
 	/**
-	 * Whether safe-remote semantics should be used.
+	 * Whether to reject unsafe URLs.
 	 *
+	 * @since 0.2.0
 	 * @var bool
 	 */
-	private $safe_remote;
+	private bool $safe_remote;
 
 	/**
 	 * Constructor.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @param object $response_factory PSR-17 response factory.
 	 * @param object $stream_factory   PSR-17 stream factory.
-	 * @param object $base_client      Existing WordPress AI HTTP client.
-	 * @param bool   $safe_remote      Whether unsafe URLs should be rejected by default.
+	 * @param object $base_client      Base HTTP client.
+	 * @param bool   $safe_remote      Whether unsafe URLs should be rejected.
 	 */
 	public function __construct( $response_factory, $stream_factory, $base_client, bool $safe_remote ) {
 		$this->response_factory = $response_factory;
@@ -56,30 +72,34 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Sends a request, using the streaming transport only when the request opts in.
+	 * Sends a request, intercepting only requests that opt into streaming.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param object      $request PSR-7 request.
 	 * @param object|null $options Optional request options.
 	 * @return object
 	 */
-	public function send_request( $request, $options = null ) {
-		$analysis = $this->inspect_request( $request );
+	public function sendRequest( $request, $options = null ) {
+		$analysis = $this->inspectRequest( $request );
 
 		if ( ! $analysis['contract']['enabled'] || ! function_exists( 'curl_init' ) ) {
-			return $this->delegate_request( $request, $options );
+			return $this->delegateRequest( $request, $options );
 		}
 
-		return $this->send_streaming_request( $request, $options, $analysis );
+		return $this->sendStreamingRequest( $request, $options, $analysis );
 	}
 
 	/**
-	 * Delegates a request to the existing client.
+	 * Delegates a request to the base WordPress HTTP adapter.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param object      $request PSR-7 request.
 	 * @param object|null $options Optional request options.
 	 * @return object
 	 */
-	private function delegate_request( $request, $options = null ) {
+	private function delegateRequest( $request, $options = null ) {
 		if ( null !== $options && method_exists( $this->base_client, 'sendRequestWithOptions' ) ) {
 			return $this->base_client->sendRequestWithOptions( $request, $options );
 		}
@@ -90,31 +110,33 @@ final class Streaming_HTTP_Client_Service {
 	/**
 	 * Sends a streaming request.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @param object               $request  PSR-7 request.
 	 * @param object|null          $options  Optional request options.
 	 * @param array<string, mixed> $analysis Request analysis.
 	 * @return object
 	 */
-	private function send_streaming_request( $request, $options, array $analysis ) {
+	private function sendStreamingRequest( $request, $options, array $analysis ) {
 		$url         = (string) $request->getUri();
 		$contract    = $analysis['contract'];
-		$parsed_args = $this->build_parsed_args( $request, $options, $url, $analysis );
+		$parsed_args = $this->prepareWpArgs( $request, $options, $url, $analysis );
 
 		$pre = apply_filters( 'pre_http_request', false, $parsed_args, $url );
 		if ( false !== $pre ) {
-			do_action( 'http_api_debug', $pre, 'response', 'WP_Stream_HTTP_Client', $parsed_args, $url );
+			do_action( 'http_api_debug', $pre, 'response', 'WP_AI_Client_Streaming_HTTP_Client', $parsed_args, $url );
 
 			if ( is_wp_error( $pre ) ) {
-				throw $this->create_network_exception( $request, $url, $pre );
+				throw $this->createNetworkException( $request, $url, $pre );
 			}
 
 			$pre = apply_filters( 'http_response', $pre, $parsed_args, $url );
 
 			if ( is_wp_error( $pre ) ) {
-				throw $this->create_network_exception( $request, $url, $pre );
+				throw $this->createNetworkException( $request, $url, $pre );
 			}
 
-			return $this->create_psr_response( $pre, $contract );
+			return $this->createPsrResponse( $pre, $contract );
 		}
 
 		if ( function_exists( 'wp_kses_bad_protocol' ) ) {
@@ -130,45 +152,47 @@ final class Streaming_HTTP_Client_Service {
 		$parsed_url = parse_url( $url );
 
 		if ( empty( $url ) || empty( $parsed_url['scheme'] ) ) {
-			$error = new \WP_Error( 'http_request_failed', __( 'A valid URL was not provided.', 'wp-stream' ) );
-			do_action( 'http_api_debug', $error, 'response', 'WP_Stream_HTTP_Client', $parsed_args, $url );
-			throw $this->create_network_exception( $request, $url, $error );
+			$error = new WP_Error( 'http_request_failed', __( 'A valid URL was not provided.' ) );
+			do_action( 'http_api_debug', $error, 'response', 'WP_AI_Client_Streaming_HTTP_Client', $parsed_args, $url );
+			throw $this->createNetworkException( $request, $url, $error );
 		}
 
-		$http = new \WP_Http();
+		$http = new WP_Http();
 
 		if ( $http->block_request( $url ) ) {
-			$error = new \WP_Error(
+			$error = new WP_Error(
 				'http_request_not_executed',
 				sprintf(
 					/* translators: %s: Blocked URL. */
-					__( 'User has blocked requests through HTTP to the URL: %s.', 'wp-stream' ),
+					__( 'User has blocked requests through HTTP to the URL: %s.' ),
 					$url
 				)
 			);
-			do_action( 'http_api_debug', $error, 'response', 'WP_Stream_HTTP_Client', $parsed_args, $url );
-			throw $this->create_network_exception( $request, $url, $error );
+			do_action( 'http_api_debug', $error, 'response', 'WP_AI_Client_Streaming_HTTP_Client', $parsed_args, $url );
+			throw $this->createNetworkException( $request, $url, $error );
 		}
 
-		$response = $this->execute_streaming_request_loop( $url, $parsed_args, $contract );
+		$response = $this->executeStreamingRequestLoop( $url, $parsed_args, $contract );
 
-		do_action( 'http_api_debug', $response, 'response', 'WP_Stream_HTTP_Client', $parsed_args, $url );
+		do_action( 'http_api_debug', $response, 'response', 'WP_AI_Client_Streaming_HTTP_Client', $parsed_args, $url );
 
 		if ( is_wp_error( $response ) ) {
-			throw $this->create_network_exception( $request, $url, $response );
+			throw $this->createNetworkException( $request, $url, $response );
 		}
 
 		$response = apply_filters( 'http_response', $response, $parsed_args, $url );
 
 		if ( is_wp_error( $response ) ) {
-			throw $this->create_network_exception( $request, $url, $response );
+			throw $this->createNetworkException( $request, $url, $response );
 		}
 
-		return $this->create_psr_response( $response, $contract );
+		return $this->createPsrResponse( $response, $contract );
 	}
 
 	/**
-	 * Builds request arguments that match WordPress's HTTP defaults closely.
+	 * Prepares WordPress HTTP request arguments.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param object               $request  PSR-7 request.
 	 * @param object|null          $options  Optional request options.
@@ -176,7 +200,7 @@ final class Streaming_HTTP_Client_Service {
 	 * @param array<string, mixed> $analysis Request analysis.
 	 * @return array<string, mixed>
 	 */
-	private function build_parsed_args( $request, $options, string $url, array $analysis ): array {
+	private function prepareWpArgs( $request, $options, string $url, array $analysis ): array {
 		$default_version = apply_filters( 'http_request_version', '1.0', $url );
 		$http_version    = (string) $request->getProtocolVersion();
 
@@ -204,11 +228,6 @@ final class Streaming_HTTP_Client_Service {
 			$args['redirection'] = 0;
 		}
 
-		/*
-		 * Streaming requests should prefer HTTP/1.1. WordPress defaults many HTTP
-		 * calls to 1.0, but streamed SSE responses are materially more reliable
-		 * when the upstream request uses normal HTTP/1.1 transfer semantics.
-		 */
 		if ( ! empty( $analysis['contract']['enabled'] ) ) {
 			$args['httpversion'] = '1.1';
 		}
@@ -238,35 +257,37 @@ final class Streaming_HTTP_Client_Service {
 		}
 
 		if ( ! is_array( $args['headers'] ) ) {
-			$processed_headers = \WP_Http::processHeaders( $args['headers'], $url );
+			$processed_headers = WP_Http::processHeaders( $args['headers'], $url );
 			$args['headers']   = $processed_headers['headers'];
 		}
 
-		\WP_Http::buildCookieHeader( $args );
+		WP_Http::buildCookieHeader( $args );
 
 		return $args;
 	}
 
 	/**
-	 * Executes the streaming request and handles redirects.
+	 * Executes a streaming request loop and follows redirects when needed.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param string               $url         Request URL.
-	 * @param array<string, mixed> $parsed_args Request args.
+	 * @param array<string, mixed> $parsed_args Parsed request arguments.
 	 * @param array<string, mixed> $contract    Streaming contract.
-	 * @return array<string, mixed>|\WP_Error
+	 * @return array<string, mixed>|WP_Error
 	 */
-	private function execute_streaming_request_loop( string $url, array $parsed_args, array $contract ) {
+	private function executeStreamingRequestLoop( string $url, array $parsed_args, array $contract ) {
 		$current_url  = $url;
 		$current_args = $parsed_args;
 
 		while ( true ) {
-			$response = $this->execute_single_streaming_request( $current_url, $current_args, $contract );
+			$response = $this->executeSingleStreamingRequest( $current_url, $current_args, $contract );
 
 			if ( is_wp_error( $response ) ) {
 				return $response;
 			}
 
-			$redirect_location = $this->resolve_redirect_location( $current_url, $current_args, $response );
+			$redirect_location = $this->resolveRedirectLocation( $current_url, $current_args, $response );
 
 			if ( is_wp_error( $redirect_location ) ) {
 				return $redirect_location;
@@ -277,32 +298,34 @@ final class Streaming_HTTP_Client_Service {
 			}
 
 			if ( empty( $current_args['redirection'] ) ) {
-				return new \WP_Error( 'http_request_failed', __( 'Too many redirects.', 'wp-stream' ) );
+				return new WP_Error( 'http_request_failed', __( 'Too many redirects.' ) );
 			}
 
 			$current_args['redirection']--;
 			$current_args['_redirection'] = $current_args['redirection'];
-			$current_args                 = $this->prepare_redirect_args( $current_args, $response );
+			$current_args                 = $this->prepareRedirectArgs( $current_args, $response );
 			$current_url                  = $redirect_location;
 		}
 	}
 
 	/**
-	 * Executes one cURL streaming request.
+	 * Executes a single cURL streaming request.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param string               $url         Request URL.
-	 * @param array<string, mixed> $parsed_args Request args.
+	 * @param array<string, mixed> $parsed_args Parsed request arguments.
 	 * @param array<string, mixed> $contract    Streaming contract.
-	 * @return array<string, mixed>|\WP_Error
+	 * @return array<string, mixed>|WP_Error
 	 */
-	private function execute_single_streaming_request( string $url, array $parsed_args, array $contract ) {
+	private function executeSingleStreamingRequest( string $url, array $parsed_args, array $contract ) {
 		$handle              = curl_init();
 		$raw_headers         = '';
 		$bytes_written_total = 0;
 		$limit               = isset( $parsed_args['limit_response_size'] ) ? (int) $parsed_args['limit_response_size'] : 0;
 		$body_handle         = ! empty( $contract['capture_body'] ) ? fopen( 'php://temp', 'w+' ) : false;
 		$last_write_error    = '';
-		$parser              = 'sse' === $contract['mode'] ? new SSE_Parser() : null;
+		$parser              = 'sse' === $contract['mode'] ? new WP_AI_Client_SSE_Parser() : null;
 		$context             = array(
 			'request_id' => $contract['request_id'],
 			'mode'       => $contract['mode'],
@@ -316,10 +339,10 @@ final class Streaming_HTTP_Client_Service {
 				fclose( $body_handle );
 			}
 
-			return new \WP_Error( 'http_request_failed', __( 'Unable to initialize cURL.', 'wp-stream' ) );
+			return new WP_Error( 'http_request_failed', __( 'Unable to initialize cURL.' ) );
 		}
 
-		do_action( 'wp_stream_http_request_start', $context );
+		do_action( 'wp_ai_client_stream_request_start', $context );
 
 		curl_setopt( $handle, CURLOPT_URL, $url );
 		curl_setopt( $handle, CURLOPT_RETURNTRANSFER, false );
@@ -382,20 +405,15 @@ final class Streaming_HTTP_Client_Service {
 		if ( ! empty( $parsed_args['headers'] ) ) {
 			$curl_request_headers = $parsed_args['headers'];
 
-			/*
-			 * Streaming requests should avoid the Expect: 100-Continue preflight
-			 * and avoid transparent compression. Both can delay or batch small
-			 * chunks in ways that make token streaming appear non-incremental.
-			 */
 			if (
 				null !== $parsed_args['body'] &&
 				'' !== $parsed_args['body'] &&
-				! $this->has_header_named( $curl_request_headers, 'Expect' )
+				! $this->hasHeaderNamed( $curl_request_headers, 'Expect' )
 			) {
 				$curl_request_headers['Expect'] = '';
 			}
 
-			if ( ! $this->has_header_named( $curl_request_headers, 'Accept-Encoding' ) ) {
+			if ( ! $this->hasHeaderNamed( $curl_request_headers, 'Accept-Encoding' ) ) {
 				$curl_request_headers['Accept-Encoding'] = 'identity';
 			}
 
@@ -416,7 +434,7 @@ final class Streaming_HTTP_Client_Service {
 			curl_setopt( $handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1 );
 		}
 
-		$proxy = new \WP_HTTP_Proxy();
+		$proxy = new WP_HTTP_Proxy();
 
 		if ( $proxy->is_enabled() && $proxy->send_through_proxy( $url ) ) {
 			curl_setopt( $handle, CURLOPT_PROXYTYPE, CURLPROXY_HTTP );
@@ -459,7 +477,7 @@ final class Streaming_HTTP_Client_Service {
 					$bytes_written = fwrite( $body_handle, $data );
 
 					if ( false === $bytes_written ) {
-						$last_write_error = __( 'Failed to write the streamed response body.', 'wp-stream' );
+						$last_write_error = __( 'Failed to write the streamed response body.' );
 						return 0;
 					}
 				}
@@ -475,19 +493,19 @@ final class Streaming_HTTP_Client_Service {
 				);
 
 				do_action( 'requests-request.progress', $data, $bytes_written_total, $limit > 0 ? $limit : null );
-				do_action( 'wp_stream_http_chunk', $data, $chunk_context );
+				do_action( 'wp_ai_client_stream_chunk', $data, $chunk_context );
 
-				if ( $parser instanceof SSE_Parser ) {
+				if ( $parser instanceof WP_AI_Client_SSE_Parser ) {
 					foreach ( $parser->push( $data ) as $event ) {
-						do_action( 'wp_stream_http_sse_event', $event, $chunk_context );
+						do_action( 'wp_ai_client_stream_sse_event', $event, $chunk_context );
 
-						if ( true !== apply_filters( 'wp_stream_http_continue', true, $event, $chunk_context ) ) {
-							$last_write_error = __( 'Streaming request aborted by wp_stream_http_continue.', 'wp-stream' );
+						if ( true !== apply_filters( 'wp_ai_client_stream_continue', true, $event, $chunk_context ) ) {
+							$last_write_error = __( 'Streaming request aborted by wp_ai_client_stream_continue.' );
 							return 0;
 						}
 					}
-				} elseif ( true !== apply_filters( 'wp_stream_http_continue', true, $data, $chunk_context ) ) {
-					$last_write_error = __( 'Streaming request aborted by wp_stream_http_continue.', 'wp-stream' );
+				} elseif ( true !== apply_filters( 'wp_ai_client_stream_continue', true, $data, $chunk_context ) ) {
+					$last_write_error = __( 'Streaming request aborted by wp_ai_client_stream_continue.' );
 					return 0;
 				}
 
@@ -501,7 +519,7 @@ final class Streaming_HTTP_Client_Service {
 		$curl_errno = curl_errno( $handle );
 		$curl_error = curl_error( $handle );
 
-		$processed_headers = \WP_Http::processHeaders( $raw_headers, $url );
+		$processed_headers = WP_Http::processHeaders( $raw_headers, $url );
 
 		if ( $curl_errno ) {
 			$within_limit = CURLE_WRITE_ERROR === $curl_errno && $limit > 0 && $bytes_written_total === $limit;
@@ -515,7 +533,7 @@ final class Streaming_HTTP_Client_Service {
 
 				$error = $last_write_error ? $last_write_error : $curl_error;
 				do_action(
-					'wp_stream_http_error',
+					'wp_ai_client_stream_error',
 					$error,
 					array_merge(
 						$context,
@@ -525,7 +543,7 @@ final class Streaming_HTTP_Client_Service {
 					)
 				);
 
-				return new \WP_Error( 'http_request_failed', $error );
+				return new WP_Error( 'http_request_failed', $error );
 			}
 		}
 
@@ -535,25 +553,25 @@ final class Streaming_HTTP_Client_Service {
 			}
 
 			curl_close( $handle );
-			do_action( 'wp_stream_http_error', $curl_error, $context );
+			do_action( 'wp_ai_client_stream_error', $curl_error, $context );
 
-			return new \WP_Error( 'http_request_failed', $curl_error );
+			return new WP_Error( 'http_request_failed', $curl_error );
 		}
 
 		curl_close( $handle );
 
 		$response = array(
-			'headers'               => $processed_headers['headers'],
-			'body'                  => '',
-			'response'              => $processed_headers['response'],
-			'cookies'               => $processed_headers['cookies'],
-			'filename'              => null,
-			'_body_resource'        => false,
-			'_wp_stream_request_id' => $contract['request_id'],
+			'headers'                    => $processed_headers['headers'],
+			'body'                       => '',
+			'response'                   => $processed_headers['response'],
+			'cookies'                    => $processed_headers['cookies'],
+			'filename'                   => null,
+			'_body_resource'             => false,
+			'_wp_ai_client_stream_id'    => $contract['request_id'],
 		);
 
-		$response['headers']['x-wp-stream-request-id'] = $contract['request_id'];
-		$response['headers']['x-wp-stream-mode']       = $contract['mode'];
+		$response['headers']['x-wp-ai-client-stream-request-id'] = $contract['request_id'];
+		$response['headers']['x-wp-ai-client-stream-mode']       = $contract['mode'];
 
 		if ( is_resource( $body_handle ) ) {
 			rewind( $body_handle );
@@ -561,7 +579,7 @@ final class Streaming_HTTP_Client_Service {
 		}
 
 		do_action(
-			'wp_stream_http_complete',
+			'wp_ai_client_stream_complete',
 			$response,
 			array_merge(
 				$context,
@@ -575,14 +593,16 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Resolves the redirect location for a response.
+	 * Resolves the redirect target for a response, if any.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param string               $url         Request URL.
-	 * @param array<string, mixed> $parsed_args Request args.
+	 * @param array<string, mixed> $parsed_args Parsed request arguments.
 	 * @param array<string, mixed> $response    Response.
-	 * @return string|false|\WP_Error
+	 * @return string|false|WP_Error
 	 */
-	private function resolve_redirect_location( string $url, array $parsed_args, array $response ) {
+	private function resolveRedirectLocation( string $url, array $parsed_args, array $response ) {
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 
 		if ( ! in_array( $status_code, array( 301, 302, 303, 307, 308 ), true ) ) {
@@ -595,23 +615,25 @@ final class Streaming_HTTP_Client_Service {
 			return false;
 		}
 
-		$location = \WP_Http::make_absolute_url( $location, $url );
+		$location = WP_Http::make_absolute_url( $location, $url );
 
 		if ( ! empty( $parsed_args['reject_unsafe_urls'] ) && ! wp_http_validate_url( $location ) ) {
-			return new \WP_Error( 'http_request_failed', __( 'A valid URL was not provided.', 'wp-stream' ) );
+			return new WP_Error( 'http_request_failed', __( 'A valid URL was not provided.' ) );
 		}
 
 		return $location;
 	}
 
 	/**
-	 * Adjusts arguments for a redirect hop.
+	 * Adjusts request arguments for a redirect hop.
 	 *
-	 * @param array<string, mixed> $parsed_args Request args.
+	 * @since 0.2.0
+	 *
+	 * @param array<string, mixed> $parsed_args Parsed request arguments.
 	 * @param array<string, mixed> $response    Response.
 	 * @return array<string, mixed>
 	 */
-	private function prepare_redirect_args( array $parsed_args, array $response ): array {
+	private function prepareRedirectArgs( array $parsed_args, array $response ): array {
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 		$method      = strtoupper( $parsed_args['method'] );
 
@@ -637,19 +659,21 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Inspects the PSR request and extracts a streaming contract.
+	 * Inspects the request and derives a streaming contract.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param object $request PSR-7 request.
 	 * @return array<string, mixed>
 	 */
-	private function inspect_request( $request ): array {
+	private function inspectRequest( $request ): array {
 		$headers  = array();
-		$body     = $this->prepare_body( $request );
+		$body     = $this->prepareBody( $request );
 		$contract = array(
 			'enabled'      => false,
 			'mode'         => null,
 			'capture_body' => true,
-			'request_id'   => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-stream-', true ),
+			'request_id'   => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-ai-client-stream-', true ),
 		);
 
 		foreach ( $request->getHeaders() as $name => $values ) {
@@ -657,21 +681,21 @@ final class Streaming_HTTP_Client_Service {
 			$normalized   = strtolower( $header_name );
 			$header_value = implode( ', ', $values );
 
-			if ( $this->is_stream_control_header( $normalized ) ) {
-				$contract = $this->apply_stream_control_header( $contract, $normalized, $header_value );
+			if ( $this->isStreamControlHeader( $normalized ) ) {
+				$contract = $this->applyStreamControlHeader( $contract, $normalized, $header_value );
 				continue;
 			}
 
 			$headers[ $header_name ] = $header_value;
 		}
 
-		$bridge_analysis = Ai_Client_Bridge::maybe_apply_request_bridge( $request, $headers, $body, $contract );
-		$headers         = $bridge_analysis['headers'];
-		$body            = $bridge_analysis['body'];
-		$contract        = $bridge_analysis['contract'];
+		$context_analysis = WP_AI_Client_Streaming_Context::maybe_apply_request_context( $request, $headers, $body, $contract );
+		$headers          = $context_analysis['headers'];
+		$body             = $context_analysis['body'];
+		$contract         = $context_analysis['contract'];
 
 		if ( ! $contract['enabled'] ) {
-			$detected_mode = $this->detect_streaming_mode( $headers, $body );
+			$detected_mode = $this->detectStreamingMode( $headers, $body );
 
 			if ( null !== $detected_mode ) {
 				$contract['enabled'] = true;
@@ -691,27 +715,31 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Whether the header is an internal streaming control header.
+	 * Returns whether a header is an internal streaming control header.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param string $header Normalized header name.
 	 * @return bool
 	 */
-	private function is_stream_control_header( string $header ): bool {
-		return 0 === strpos( $header, 'x-wp-stream' ) || 0 === strpos( $header, 'x-stream' );
+	private function isStreamControlHeader( string $header ): bool {
+		return 0 === strpos( $header, 'x-wp-ai-client-stream' ) || 0 === strpos( $header, 'x-ai-stream' );
 	}
 
 	/**
-	 * Applies a streaming control header to the contract.
+	 * Applies an internal streaming control header to the contract.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, mixed> $contract Current contract.
-	 * @param string               $header   Normalized header name.
+	 * @param string               $header   Header name.
 	 * @param string               $value    Header value.
 	 * @return array<string, mixed>
 	 */
-	private function apply_stream_control_header( array $contract, string $header, string $value ): array {
+	private function applyStreamControlHeader( array $contract, string $header, string $value ): array {
 		$value = trim( strtolower( $value ) );
 
-		if ( in_array( $header, array( 'x-stream', 'x-wp-stream', 'x-stream-mode', 'x-wp-stream-mode' ), true ) ) {
+		if ( in_array( $header, array( 'x-ai-stream', 'x-wp-ai-client-stream', 'x-ai-stream-mode', 'x-wp-ai-client-stream-mode' ), true ) ) {
 			$contract['enabled'] = true;
 
 			if ( in_array( $value, array( 'raw', 'sse' ), true ) ) {
@@ -719,11 +747,11 @@ final class Streaming_HTTP_Client_Service {
 			}
 		}
 
-		if ( in_array( $header, array( 'x-stream-request-id', 'x-wp-stream-request-id' ), true ) && '' !== $value ) {
+		if ( in_array( $header, array( 'x-ai-stream-request-id', 'x-wp-ai-client-stream-request-id' ), true ) && '' !== $value ) {
 			$contract['request_id'] = $value;
 		}
 
-		if ( in_array( $header, array( 'x-stream-capture', 'x-wp-stream-capture' ), true ) ) {
+		if ( in_array( $header, array( 'x-ai-stream-capture', 'x-wp-ai-client-stream-capture' ), true ) ) {
 			$contract['capture_body'] = ! in_array( $value, array( '0', 'false', 'no', 'off', 'none', 'discard' ), true );
 		}
 
@@ -731,20 +759,22 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Detects whether the request body or headers indicate provider-side streaming.
+	 * Detects streaming mode from headers or request body.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
-	 * @param string|null           $body    Request body.
+	 * @param string|null           $body    Body.
 	 * @return string|null
 	 */
-	private function detect_streaming_mode( array $headers, ?string $body ): ?string {
+	private function detectStreamingMode( array $headers, ?string $body ): ?string {
 		foreach ( $headers as $name => $value ) {
 			if ( 'accept' === strtolower( $name ) && false !== stripos( $value, 'text/event-stream' ) ) {
 				return 'sse';
 			}
 		}
 
-		if ( empty( $body ) || ! $this->looks_like_json_request( $headers ) ) {
+		if ( empty( $body ) || ! $this->looksLikeJsonRequest( $headers ) ) {
 			return null;
 		}
 
@@ -762,12 +792,14 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Whether the request looks like a JSON API request.
+	 * Returns whether the request looks like JSON.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
 	 * @return bool
 	 */
-	private function looks_like_json_request( array $headers ): bool {
+	private function looksLikeJsonRequest( array $headers ): bool {
 		foreach ( $headers as $name => $value ) {
 			if ( 'content-type' !== strtolower( $name ) ) {
 				continue;
@@ -780,13 +812,15 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Whether the header array already contains the requested header name.
+	 * Returns whether the header array already contains the requested header.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param array<string, string> $headers Headers.
 	 * @param string                $header  Header name.
 	 * @return bool
 	 */
-	private function has_header_named( array $headers, string $header ): bool {
+	private function hasHeaderNamed( array $headers, string $header ): bool {
 		foreach ( $headers as $name => $value ) {
 			if ( strtolower( $name ) === strtolower( $header ) ) {
 				return true;
@@ -797,12 +831,14 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Converts a PSR-7 request body to a string.
+	 * Converts a PSR-7 request body into a string.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param object $request PSR-7 request.
 	 * @return string|null
 	 */
-	private function prepare_body( $request ): ?string {
+	private function prepareBody( $request ): ?string {
 		$body = $request->getBody();
 
 		if ( method_exists( $body, 'getSize' ) && 0 === $body->getSize() ) {
@@ -819,13 +855,15 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Converts a WordPress-style response array into a PSR response.
+	 * Creates a PSR-7 response from a WordPress HTTP response array.
 	 *
-	 * @param array<string, mixed> $response WordPress response array.
+	 * @since 0.2.0
+	 *
+	 * @param array<string, mixed> $response Response array.
 	 * @param array<string, mixed> $contract Streaming contract.
 	 * @return object
 	 */
-	private function create_psr_response( array $response, array $contract ) {
+	private function createPsrResponse( array $response, array $contract ) {
 		$status_code   = wp_remote_retrieve_response_code( $response );
 		$reason_phrase = wp_remote_retrieve_response_message( $response );
 		$headers       = wp_remote_retrieve_headers( $response );
@@ -833,27 +871,27 @@ final class Streaming_HTTP_Client_Service {
 
 		$psr_response = $this->response_factory->createResponse( (int) $status_code, $reason_phrase );
 
-		if ( $headers instanceof \WP_HTTP_Requests_Response ) {
+		if ( $headers instanceof WP_HTTP_Requests_Response ) {
 			$headers = $headers->get_headers();
 		}
 
-		if ( is_array( $headers ) || $headers instanceof \Traversable ) {
+		if ( is_array( $headers ) || $headers instanceof Traversable ) {
 			foreach ( $headers as $name => $value ) {
 				$psr_response = $psr_response->withHeader( $name, $value );
 			}
 		}
 
 		if ( ! empty( $response['_body_resource'] ) && is_resource( $response['_body_resource'] ) ) {
-			$resource_body = $this->read_response_body_resource( $response['_body_resource'] );
+			$resource_body = $this->readResponseBodyResource( $response['_body_resource'] );
 			fclose( $response['_body_resource'] );
 
-			$resource_body = $this->normalize_streamed_response_body( $resource_body, $contract );
+			$resource_body = $this->normalizeStreamedResponseBody( $resource_body, $contract );
 
 			if ( '' !== $resource_body ) {
 				$psr_response = $psr_response->withBody( $this->stream_factory->createStream( $resource_body ) );
 			}
 		} elseif ( is_string( $body ) && '' !== $body ) {
-			$body         = $this->normalize_streamed_response_body( $body, $contract );
+			$body         = $this->normalizeStreamedResponseBody( $body, $contract );
 			$psr_response = $psr_response->withBody( $this->stream_factory->createStream( $body ) );
 		}
 
@@ -861,12 +899,14 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Reads a response body resource into a string.
+	 * Reads a captured response body resource into a string.
+	 *
+	 * @since 0.2.0
 	 *
 	 * @param resource $resource Response body resource.
 	 * @return string
 	 */
-	private function read_response_body_resource( $resource ): string {
+	private function readResponseBodyResource( $resource ): string {
 		rewind( $resource );
 
 		$body = stream_get_contents( $resource );
@@ -881,11 +921,13 @@ final class Streaming_HTTP_Client_Service {
 	/**
 	 * Normalizes captured SSE output back into a final JSON response body.
 	 *
+	 * @since 0.2.0
+	 *
 	 * @param string               $body     Raw captured response body.
 	 * @param array<string, mixed> $contract Streaming contract.
 	 * @return string
 	 */
-	private function normalize_streamed_response_body( string $body, array $contract ): string {
+	private function normalizeStreamedResponseBody( string $body, array $contract ): string {
 		if ( '' === $body || 'sse' !== ( $contract['mode'] ?? null ) ) {
 			return $body;
 		}
@@ -896,14 +938,14 @@ final class Streaming_HTTP_Client_Service {
 			return $body;
 		}
 
-		$parser            = new SSE_Parser();
+		$parser            = new WP_AI_Client_SSE_Parser();
 		$terminal_response = null;
 		$latest_response   = null;
 		$normalized_body   = substr( $body, -2 ) === "\n\n" ? $body : $body . "\n\n";
 		$events            = $parser->push( $normalized_body );
 
 		foreach ( $events as $event ) {
-			if ( ! $event instanceof SSE_Event || $event->is_done() ) {
+			if ( ! $event instanceof WP_AI_Client_SSE_Event || $event->is_done() ) {
 				continue;
 			}
 
@@ -933,23 +975,26 @@ final class Streaming_HTTP_Client_Service {
 	}
 
 	/**
-	 * Creates the network exception used by the PHP AI client.
+	 * Creates the network exception expected by the PHP AI client.
 	 *
-	 * @param object    $request Request object.
-	 * @param string    $url     URL.
-	 * @param \WP_Error $error   Error instance.
-	 * @return \WordPress\AiClient\Providers\Http\Exception\NetworkException
+	 * @since 0.2.0
+	 *
+	 * @param object   $request Request object.
+	 * @param string   $url     URL.
+	 * @param WP_Error $error   Error instance.
+	 * @return NetworkException
 	 */
-	private function create_network_exception( $request, string $url, \WP_Error $error ) {
+	private function createNetworkException( $request, string $url, WP_Error $error ): NetworkException {
 		$message = sprintf(
-			'Network error occurred while sending %1$s request to %2$s: %3$s',
+			/* translators: 1: HTTP method. 2: URL. 3: Error message. */
+			__( 'Network error occurred while sending %1$s request to %2$s: %3$s' ),
 			$request->getMethod(),
 			$url,
 			$error->get_error_message()
 		);
 
-		return new \WordPress\AiClient\Providers\Http\Exception\NetworkException(
-			$message,
+		return new NetworkException(
+			$message, // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			$error->get_error_code() ? (int) $error->get_error_code() : 0
 		);
 	}
