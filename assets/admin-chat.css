@@ -1,0 +1,137 @@
+.wp-stream-admin__intro {
+	max-width: 880px;
+	margin: 0 0 20px;
+}
+
+.wp-stream-admin__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+	gap: 20px;
+	align-items: start;
+	max-width: 1200px;
+}
+
+.wp-stream-chat,
+.wp-stream-chat-settings {
+	box-sizing: border-box;
+	padding: 20px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+}
+
+.wp-stream-chat__header h2,
+.wp-stream-chat-settings h2 {
+	margin: 0 0 8px;
+}
+
+.wp-stream-chat__header p,
+.wp-stream-chat-settings p {
+	margin-top: 0;
+	color: #50575e;
+}
+
+#wp-stream-chat-notice.hidden {
+	display: none;
+}
+
+.wp-stream-chat__log {
+	min-height: 320px;
+	max-height: 60vh;
+	margin-bottom: 16px;
+	padding: 16px;
+	overflow-y: auto;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+}
+
+.wp-stream-chat__empty {
+	color: #50575e;
+}
+
+.wp-stream-chat__message + .wp-stream-chat__message {
+	margin-top: 12px;
+}
+
+.wp-stream-chat__message {
+	max-width: 90%;
+	padding: 12px 14px;
+	border-radius: 6px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+}
+
+.wp-stream-chat__message.is-user {
+	margin-left: auto;
+	background: #f0f6fc;
+	border-color: #c3d9ed;
+}
+
+.wp-stream-chat__message.is-assistant {
+	margin-right: auto;
+}
+
+.wp-stream-chat__message.is-error {
+	border-color: #d63638;
+	background: #fcf0f1;
+}
+
+.wp-stream-chat__meta {
+	margin-bottom: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: #50575e;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.wp-stream-chat__content p {
+	margin: 0;
+	line-height: 1.6;
+	white-space: normal;
+}
+
+.wp-stream-chat__typing {
+	color: #50575e;
+	font-style: italic;
+}
+
+.wp-stream-chat__form textarea {
+	min-height: 96px;
+	resize: vertical;
+}
+
+.wp-stream-chat__actions {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-top: 12px;
+}
+
+.wp-stream-chat__actions .spinner {
+	float: none;
+	margin: 0;
+}
+
+.wp-stream-chat-settings__field + .wp-stream-chat-settings__field,
+.wp-stream-chat-settings__help {
+	margin-top: 16px;
+}
+
+.wp-stream-chat-settings__field label {
+	display: block;
+	margin-bottom: 6px;
+}
+
+.wp-stream-chat-settings__help ul {
+	margin: 8px 0 0 18px;
+}
+
+@media ( max-width: 960px ) {
+	.wp-stream-admin__grid {
+		grid-template-columns: 1fr;
+	}
+
+	.wp-stream-chat__message {
+		max-width: 100%;
+	}
+}
