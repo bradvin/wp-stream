@@ -125,9 +125,6 @@ final class Admin_Chat_Page {
 		?>
 			<div class="wrap wp-stream-admin">
 				<h1>WP Stream Chat</h1>
-				<p class="wp-stream-admin__intro">
-					This page streams tokens through <code>wp_stream_generate_result()</code> while still finishing with a normal AI client result.
-				</p>
 
 				<div class="notice inline <?php echo esc_attr( $transport_notice_class ); ?> wp-stream-admin__transport-check">
 					<p>
@@ -145,15 +142,14 @@ final class Admin_Chat_Page {
 
 				<?php if ( ! $ai_supported ) : ?>
 					<div class="notice notice-warning inline">
-						<p>AI features are currently disabled in this environment. The demo page is available, but requests will not run until AI support is enabled.</p>
+						<p>AI support is disabled.</p>
 					</div>
 			<?php endif; ?>
 
 			<div class="wp-stream-admin__grid">
 				<section class="wp-stream-chat card">
 					<div class="wp-stream-chat__header">
-						<h2>Chat Demo</h2>
-						<p>Uses the WordPress AI Client with the streaming bridge enabled for each request.</p>
+						<h2>Chat</h2>
 					</div>
 
 					<div id="wp-stream-chat-notice" class="notice inline hidden" aria-live="polite"></div>
@@ -166,7 +162,7 @@ final class Admin_Chat_Page {
 						aria-relevant="additions text"
 					>
 						<div class="wp-stream-chat__empty">
-							Send a message to watch the assistant response stream into the transcript.
+							No messages yet.
 						</div>
 					</div>
 
@@ -177,7 +173,7 @@ final class Admin_Chat_Page {
 							class="large-text"
 							rows="4"
 							<?php disabled( ! $transport_is_active ); ?>
-							placeholder="Ask a short question about your site, WordPress, or the bridge demo."
+							placeholder="Ask something"
 						></textarea>
 
 						<div class="wp-stream-chat__actions">
@@ -189,14 +185,13 @@ final class Admin_Chat_Page {
 
 					<?php if ( ! $transport_is_active ) : ?>
 						<p class="wp-stream-chat__transport-warning">
-							The demo is disabled until the default AI Client registry is using the WP Stream HTTP client.
+							Chat is disabled until the WP Stream HTTP client is active.
 						</p>
 					<?php endif; ?>
 				</section>
 
 				<aside class="wp-stream-chat-settings card">
-					<h2>Request Settings</h2>
-					<p>Keep this simple. The demo uses WordPress model discovery and only adjusts a few text-generation settings.</p>
+					<h2>Settings</h2>
 
 					<div class="wp-stream-chat-settings__field">
 						<label for="wp-stream-system-prompt"><strong>System prompt</strong></label>
@@ -216,16 +211,7 @@ final class Admin_Chat_Page {
 						<label for="wp-stream-max-tokens"><strong>Max tokens</strong></label>
 						<input id="wp-stream-max-tokens" class="small-text" type="number" min="32" max="4096" step="1" value="512" />
 					</div>
-
-						<div class="wp-stream-chat-settings__help">
-							<p><strong>Notes</strong></p>
-							<ul>
-								<li>The transcript stays in the browser for now.</li>
-								<li>The server streams <code>text/event-stream</code> frames over <code>admin-ajax.php</code>.</li>
-								<li>The final response still comes from the regular WordPress AI Client result object.</li>
-							</ul>
-						</div>
-					</aside>
+				</aside>
 			</div>
 		</div>
 		<?php

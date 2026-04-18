@@ -220,10 +220,10 @@
 			}
 		};
 
-		const parseSseBlock = ( block ) => {
-			const lines = block.split( '\n' );
-			let type = 'message';
-			const dataLines = [];
+	const parseSseBlock = ( block ) => {
+		const lines = block.split( '\n' );
+		let type = 'message';
+		const dataLines = [];
 
 			lines.forEach( ( line ) => {
 				if ( ! line || line.startsWith( ':' ) ) {
@@ -253,6 +253,21 @@
 				return null;
 			}
 		};
+
+	input.addEventListener( 'keydown', ( event ) => {
+		if ( event.key !== 'Enter' || event.shiftKey ) {
+			return;
+		}
+
+		event.preventDefault();
+
+		if ( typeof form.requestSubmit === 'function' ) {
+			form.requestSubmit();
+			return;
+		}
+
+		form.dispatchEvent( new Event( 'submit', { cancelable: true, bubbles: true } ) );
+	} );
 
 	form.addEventListener( 'submit', async ( event ) => {
 		event.preventDefault();
