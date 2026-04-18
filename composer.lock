@@ -4,18 +4,27 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d269b5405b31a8f7d0a52b9dae16d5f7",
+    "content-hash": "3354c885567fb89cb04700489e1a3b7b",
     "packages": [
         {
             "name": "bradvin/wp-ai-client-streaming",
-            "version": "dev-main",
+            "version": "v0.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/bradvin/wp-ai-client-streaming.git",
+                "reference": "b179209cf173ef39e946fc8713b4c81b14cd6a61"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../../../../../../Documents/GitHub/bradvin/wp-ai-client-streaming",
-                "reference": "22e84a897166530fbf90073837a0d55ddde42e48"
+                "type": "zip",
+                "url": "https://api.github.com/repos/bradvin/wp-ai-client-streaming/zipball/b179209cf173ef39e946fc8713b4c81b14cd6a61",
+                "reference": "b179209cf173ef39e946fc8713b4c81b14cd6a61",
+                "shasum": ""
             },
             "require": {
                 "php": ">=7.4"
+            },
+            "suggest": {
+                "ext-curl": "Required for true incremental streaming; without cURL the package falls back to the stock HTTP client."
             },
             "type": "library",
             "autoload": {
@@ -23,22 +32,37 @@
                     "load.php"
                 ]
             },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "GPL-2.0-or-later"
             ],
+            "authors": [
+                {
+                    "name": "bradvin",
+                    "homepage": "https://github.com/bradvin",
+                    "role": "Developer"
+                }
+            ],
             "description": "WordPress AI streaming adapter package that mirrors WordPress 7 AI integration patterns.",
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
+            "homepage": "https://github.com/bradvin/wp-ai-client-streaming",
+            "keywords": [
+                "ai",
+                "composer",
+                "streaming",
+                "wordpress",
+                "wp-ai-client"
+            ],
+            "support": {
+                "issues": "https://github.com/bradvin/wp-ai-client-streaming/issues",
+                "source": "https://github.com/bradvin/wp-ai-client-streaming"
+            },
+            "time": "2026-04-18T14:09:12+00:00"
         }
     ],
     "packages-dev": [],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "bradvin/wp-ai-client-streaming": 20
-    },
+    "stability-flags": {},
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {

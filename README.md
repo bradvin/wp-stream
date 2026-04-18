@@ -10,10 +10,9 @@ The plugin exists to do two things:
 ## Wrapper Plugin Installation
 
 1. Copy this plugin into `wp-content/plugins/wp-stream`.
-2. Make sure the standalone `bradvin/wp-ai-client-streaming` package repo is available to Composer.
-3. Run `composer install`.
-4. Activate `WP Stream`.
-5. Make sure WordPress 7 AI support is available in the runtime.
+2. Run `composer install`.
+3. Activate `WP Stream`.
+4. Make sure WordPress 7 AI support is available in the runtime.
 
 If Composer dependencies are missing, the plugin will not bootstrap and will show an admin notice instead.
 
@@ -27,9 +26,10 @@ If Composer dependencies are missing, the plugin will not bootstrap and will sho
 
 Core-facing architecture notes and the actual streaming integration guidance now live with the package:
 
-- `bradvin/wp-ai-client-streaming/README.md`
-- `bradvin/wp-ai-client-streaming/docs/core-review-notes.md`
-- `bradvin/wp-ai-client-streaming/docs/integration-guide.md`
+- `https://packagist.org/packages/bradvin/wp-ai-client-streaming`
+- `https://github.com/bradvin/wp-ai-client-streaming`
+- `https://github.com/bradvin/wp-ai-client-streaming/blob/main/docs/core-review-notes.md`
+- `https://github.com/bradvin/wp-ai-client-streaming/blob/main/docs/integration-guide.md`
 
 The plugin README intentionally stays focused on the wrapper so the package remains the source of truth for reusable runtime behavior.
 

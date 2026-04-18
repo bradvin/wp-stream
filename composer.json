@@ -6,17 +6,8 @@
   "version": "0.1.0",
   "require": {
     "php": ">=7.4",
-    "bradvin/wp-ai-client-streaming": "dev-main"
+    "bradvin/wp-ai-client-streaming": "^0.1"
   },
-  "repositories": [
-    {
-      "type": "path",
-      "url": "../../../../../../../Documents/GitHub/bradvin/wp-ai-client-streaming",
-      "options": {
-        "symlink": false
-      }
-    }
-  ],
   "config": {
     "optimize-autoloader": true,
     "sort-packages": true
