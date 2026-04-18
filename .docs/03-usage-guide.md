@@ -365,6 +365,7 @@ $result = wp_stream_generate_result(
 Supported bridge options:
 
 - `mode`: `sse` or `raw`. Defaults to `sse`.
+- `streaming_enabled`: master on/off switch for whether the bridge should attach to matching requests. Defaults to `true`.
 - `capture_body`: whether the final body should still be buffered so the wrapped call can finish normally. Defaults to `true`. `Ai_Client_Bridge::generateResult()` forces this on because it still has to build a final `GenerativeAiResult`.
 - `inject_stream_parameter`: whether to inject `"stream": true` into matching JSON payloads. Defaults to `true`.
 - `request_id`: explicit request ID if you want stable correlation across your own logs.

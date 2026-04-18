@@ -272,39 +272,15 @@ final class Admin_Chat_Page {
 				$prompt_messages,
 				$model_config,
 				null,
-					array(
-						'request_id'      => $request_id,
-						'request_timeout' => 120.0,
-						'connect_timeout' => 15.0,
-						'request_matcher' => static function ( $request, array $headers, ?string $body ) use ( $streaming_enabled ) {
-							if ( ! $streaming_enabled ) {
-								return false;
-							}
-
-							$method = strtoupper( (string) $request->getMethod() );
-
-							if ( ! in_array( $method, array( 'POST', 'PUT', 'PATCH' ), true ) || empty( $body ) ) {
-								return false;
-							}
-
-							$payload = json_decode( $body, true );
-
-							if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $payload ) ) {
-								return false;
-							}
-
-							foreach ( array( 'messages', 'input', 'contents' ) as $key ) {
-								if ( array_key_exists( $key, $payload ) ) {
-									return true;
-								}
-							}
-
-							return ! empty( $payload['stream'] );
-						},
-						'on_event'        => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
-							if ( $event->is_done() ) {
-								return;
-							}
+				array(
+					'request_id'        => $request_id,
+					'request_timeout'   => 120.0,
+					'connect_timeout'   => 15.0,
+					'streaming_enabled' => $streaming_enabled,
+					'on_event'          => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
+						if ( $event->is_done() ) {
+							return;
+						}
 
 						$delta = self::extract_event_text( $event );
 

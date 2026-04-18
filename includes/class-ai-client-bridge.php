@@ -247,6 +247,7 @@ final class Ai_Client_Bridge {
 	private static function normalize_stream_args( array $stream_args ): array {
 		$defaults = array(
 			'mode'                    => 'sse',
+			'streaming_enabled'       => true,
 			'capture_body'            => true,
 			'inject_stream_parameter' => true,
 			'request_id'              => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-stream-', true ),
@@ -285,6 +286,7 @@ final class Ai_Client_Bridge {
 
 		$context['id']              = uniqid( 'wp-stream-bridge-', true );
 		$context['mode']            = $mode;
+		$context['streaming_enabled'] = (bool) $context['streaming_enabled'];
 		$context['capture_body']    = (bool) $context['capture_body'];
 		$context['remaining_hits']  = max( 1, (int) $context['max_requests'] );
 		$context['request_id']      = (string) $context['request_id'];
@@ -379,6 +381,10 @@ final class Ai_Client_Bridge {
 	 * @return bool
 	 */
 	private static function context_matches_request( array $context, $request, array $headers, ?string $body ): bool {
+		if ( empty( $context['streaming_enabled'] ) ) {
+			return false;
+		}
+
 		if ( is_callable( $context['request_matcher'] ) ) {
 			return true === call_user_func( $context['request_matcher'], $request, $headers, $body, $context );
 		}
