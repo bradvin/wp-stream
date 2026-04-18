@@ -2,24 +2,25 @@
 
 `WP Stream` now ships as two pieces:
 
-- `bradvin/wp-stream-core`: a WordPress 7 streaming adapter package that mirrors core’s `WP_AI_*` integration style.
+- `bradvin/wp-ai-client-streaming`: a standalone WordPress 7 streaming adapter package that mirrors core’s `WP_AI_*` integration style.
 - `wp-stream`: a thin wrapper plugin that keeps the demo UI and package bootstrap.
 
 The goal is to make the reusable package look like a small WordPress AI adapter layer that could be copied into core with minimal structural change.
 
 ## Package Layout
 
-- `packages/wp-stream-core/`
-  Core-style adapter files, loader, and streaming prompt helpers.
+- `bradvin/wp-ai-client-streaming`
+  Standalone Composer package with the core-style adapter files, loader, and streaming prompt helpers.
 - Plugin root
   Wrapper bootstrap, admin demo, and assets.
 
 ## Wrapper Plugin Installation
 
 1. Copy this plugin into `wp-content/plugins/wp-stream`.
-2. Run `composer install` when building a distributable plugin, or rely on the local source fallback while developing.
-3. Activate `WP Stream`.
-4. Make sure WordPress 7 AI support is available in the runtime.
+2. Make sure the standalone `bradvin/wp-ai-client-streaming` package repo is available to Composer.
+3. Run `composer install`.
+4. Activate `WP Stream`.
+5. Make sure WordPress 7 AI support is available in the runtime.
 
 ## Composer Consumption
 

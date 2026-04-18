@@ -1,0 +1,49 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "d269b5405b31a8f7d0a52b9dae16d5f7",
+    "packages": [
+        {
+            "name": "bradvin/wp-ai-client-streaming",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../../../../../../../Documents/GitHub/bradvin/wp-ai-client-streaming",
+                "reference": "22e84a897166530fbf90073837a0d55ddde42e48"
+            },
+            "require": {
+                "php": ">=7.4"
+            },
+            "type": "library",
+            "autoload": {
+                "files": [
+                    "load.php"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "WordPress AI streaming adapter package that mirrors WordPress 7 AI integration patterns.",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {
+        "bradvin/wp-ai-client-streaming": 20
+    },
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {
+        "php": ">=7.4"
+    },
+    "platform-dev": {},
+    "plugin-api-version": "2.6.0"
+}

@@ -11,18 +11,33 @@
 defined( 'ABSPATH' ) || exit;
 
 $autoload_file = __DIR__ . '/vendor/autoload.php';
-$package_file  = __DIR__ . '/vendor/bradvin/wp-stream-core/load.php';
 
-if ( file_exists( $autoload_file ) ) {
-	require_once $autoload_file;
+if ( ! file_exists( $autoload_file ) ) {
+	add_action(
+		'admin_notices',
+		static function (): void {
+			?>
+			<div class="notice notice-error"><p><?php echo esc_html__( 'WP Stream requires Composer dependencies. Run composer install for the plugin before activating it.', 'wp-stream' ); ?></p></div>
+			<?php
+		}
+	);
+
+	return;
 }
 
+require_once $autoload_file;
+
 if ( ! function_exists( 'wp_ai_client_stream_prompt' ) ) {
-	if ( file_exists( $package_file ) ) {
-		require_once $package_file;
-	} else {
-		require_once __DIR__ . '/packages/wp-stream-core/load.php';
-	}
+	add_action(
+		'admin_notices',
+		static function (): void {
+			?>
+			<div class="notice notice-error"><p><?php echo esc_html__( 'WP Stream could not load the wp-ai-client-streaming package from Composer.', 'wp-stream' ); ?></p></div>
+			<?php
+		}
+	);
+
+	return;
 }
 
 require_once __DIR__ . '/includes/class-plugin.php';
