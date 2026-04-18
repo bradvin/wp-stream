@@ -22,10 +22,19 @@ final class Ai_Client_Bridge {
 	/**
 	 * Executes AiClient::generateResult() with streaming callbacks enabled.
 	 *
-	 * @param mixed $prompt          Prompt passed to the AI client.
-	 * @param mixed $model_or_config Model or config passed to the AI client.
-	 * @param mixed $registry        Optional provider registry.
-	 * @param array $stream_args     Streaming bridge options.
+	 * Supported `$stream_args` keys include:
+	 * - `streaming_enabled` (bool): master switch for bridge attachment.
+	 * - `mode` (`sse` or `raw`): streaming mode to request.
+	 * - `request_id` (string): stable ID shared with transport callbacks.
+	 * - `request_options` (RequestOptions): explicit request options override.
+	 * - `request_timeout`, `connect_timeout`, `max_redirects`: request option shorthands.
+	 * - `request_matcher`, `payload_mutator`, `on_chunk`, `on_event`, `on_complete`,
+	 *   `on_error`, and `should_continue`: streaming callbacks and customizers.
+	 *
+	 * @param mixed                $prompt          Prompt passed to the AI client.
+	 * @param mixed                $model_or_config Model or config passed to the AI client.
+	 * @param mixed                $registry        Optional provider registry.
+	 * @param array<string, mixed> $stream_args     Streaming bridge options.
 	 * @return mixed
 	 */
 	public static function generateResult( $prompt, $model_or_config, $registry = null, array $stream_args = array() ) {
@@ -67,8 +76,11 @@ final class Ai_Client_Bridge {
 	/**
 	 * Runs an arbitrary callback with the bridge active.
 	 *
-	 * @param callable $callback    Callback to execute.
-	 * @param array    $stream_args Streaming bridge options.
+	 * The bridge attaches to the first matching outbound AI request during the callback
+	 * and forwards streaming events through the supplied callbacks.
+	 *
+	 * @param callable             $callback    Callback to execute.
+	 * @param array<string, mixed> $stream_args Streaming bridge options.
 	 * @return mixed
 	 */
 	public static function with_streaming( callable $callback, array $stream_args = array() ) {
@@ -241,6 +253,16 @@ final class Ai_Client_Bridge {
 	/**
 	 * Normalizes stream bridge options.
 	 *
+	 * Recognized keys:
+	 * - `mode` (`sse` or `raw`)
+	 * - `streaming_enabled` (bool)
+	 * - `capture_body` (bool)
+	 * - `inject_stream_parameter` (bool)
+	 * - `request_id` (string)
+	 * - `max_requests` (int)
+	 * - `request_matcher`, `payload_mutator`, `on_chunk`, `on_event`, `on_complete`,
+	 *   `on_error`, `should_continue` (callable|null)
+	 *
 	 * @param array<string, mixed> $stream_args Raw stream args.
 	 * @return array<string, mixed>
 	 */
@@ -284,12 +306,12 @@ final class Ai_Client_Bridge {
 			}
 		}
 
-		$context['id']              = uniqid( 'wp-stream-bridge-', true );
-		$context['mode']            = $mode;
+		$context['id']                = uniqid( 'wp-stream-bridge-', true );
+		$context['mode']              = $mode;
 		$context['streaming_enabled'] = (bool) $context['streaming_enabled'];
-		$context['capture_body']    = (bool) $context['capture_body'];
-		$context['remaining_hits']  = max( 1, (int) $context['max_requests'] );
-		$context['request_id']      = (string) $context['request_id'];
+		$context['capture_body']      = (bool) $context['capture_body'];
+		$context['remaining_hits']    = max( 1, (int) $context['max_requests'] );
+		$context['request_id']        = (string) $context['request_id'];
 
 		return $context;
 	}

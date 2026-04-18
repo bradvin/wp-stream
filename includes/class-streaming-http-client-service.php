@@ -130,7 +130,7 @@ final class Streaming_HTTP_Client_Service {
 		$parsed_url = parse_url( $url );
 
 		if ( empty( $url ) || empty( $parsed_url['scheme'] ) ) {
-			$error = new \WP_Error( 'http_request_failed', __( 'A valid URL was not provided.' ) );
+			$error = new \WP_Error( 'http_request_failed', __( 'A valid URL was not provided.', 'wp-stream' ) );
 			do_action( 'http_api_debug', $error, 'response', 'WP_Stream_HTTP_Client', $parsed_args, $url );
 			throw $this->create_network_exception( $request, $url, $error );
 		}
@@ -142,7 +142,7 @@ final class Streaming_HTTP_Client_Service {
 				'http_request_not_executed',
 				sprintf(
 					/* translators: %s: Blocked URL. */
-					__( 'User has blocked requests through HTTP to the URL: %s.' ),
+					__( 'User has blocked requests through HTTP to the URL: %s.', 'wp-stream' ),
 					$url
 				)
 			);
@@ -277,7 +277,7 @@ final class Streaming_HTTP_Client_Service {
 			}
 
 			if ( empty( $current_args['redirection'] ) ) {
-				return new \WP_Error( 'http_request_failed', __( 'Too many redirects.' ) );
+				return new \WP_Error( 'http_request_failed', __( 'Too many redirects.', 'wp-stream' ) );
 			}
 
 			$current_args['redirection']--;
@@ -316,7 +316,7 @@ final class Streaming_HTTP_Client_Service {
 				fclose( $body_handle );
 			}
 
-			return new \WP_Error( 'http_request_failed', __( 'Unable to initialize cURL.' ) );
+			return new \WP_Error( 'http_request_failed', __( 'Unable to initialize cURL.', 'wp-stream' ) );
 		}
 
 		do_action( 'wp_stream_http_request_start', $context );
@@ -331,9 +331,9 @@ final class Streaming_HTTP_Client_Service {
 		curl_setopt( $handle, CURLOPT_FOLLOWLOCATION, false );
 		curl_setopt( $handle, CURLOPT_BUFFERSIZE, 1160 );
 
-			if ( ! empty( $parsed_args['sslverify'] ) ) {
-				$is_local   = function_exists( 'wp_is_local_url' ) && wp_is_local_url( $url );
-				$ssl_verify = $parsed_args['sslcertificates'];
+		if ( ! empty( $parsed_args['sslverify'] ) ) {
+			$is_local   = function_exists( 'wp_is_local_url' ) && wp_is_local_url( $url );
+			$ssl_verify = $parsed_args['sslcertificates'];
 
 			if ( $is_local ) {
 				$ssl_verify = apply_filters( 'https_local_ssl_verify', $ssl_verify, $url );
@@ -379,34 +379,34 @@ final class Streaming_HTTP_Client_Service {
 				}
 		}
 
-			if ( ! empty( $parsed_args['headers'] ) ) {
-				$curl_request_headers = $parsed_args['headers'];
+		if ( ! empty( $parsed_args['headers'] ) ) {
+			$curl_request_headers = $parsed_args['headers'];
 
-				/*
-				 * Streaming requests should avoid the Expect: 100-Continue preflight
-				 * and avoid transparent compression. Both can delay or batch small
-				 * chunks in ways that make token streaming appear non-incremental.
-				 */
-				if (
-					null !== $parsed_args['body'] &&
-					'' !== $parsed_args['body'] &&
-					! $this->has_header_named( $curl_request_headers, 'Expect' )
-				) {
-					$curl_request_headers['Expect'] = '';
-				}
-
-				if ( ! $this->has_header_named( $curl_request_headers, 'Accept-Encoding' ) ) {
-					$curl_request_headers['Accept-Encoding'] = 'identity';
-				}
-
-				$curl_headers = array();
-
-				foreach ( $curl_request_headers as $name => $value ) {
-					$curl_headers[] = '' === (string) $value ? "{$name}:" : "{$name}: {$value}";
-				}
-
-				curl_setopt( $handle, CURLOPT_HTTPHEADER, $curl_headers );
+			/*
+			 * Streaming requests should avoid the Expect: 100-Continue preflight
+			 * and avoid transparent compression. Both can delay or batch small
+			 * chunks in ways that make token streaming appear non-incremental.
+			 */
+			if (
+				null !== $parsed_args['body'] &&
+				'' !== $parsed_args['body'] &&
+				! $this->has_header_named( $curl_request_headers, 'Expect' )
+			) {
+				$curl_request_headers['Expect'] = '';
 			}
+
+			if ( ! $this->has_header_named( $curl_request_headers, 'Accept-Encoding' ) ) {
+				$curl_request_headers['Accept-Encoding'] = 'identity';
+			}
+
+			$curl_headers = array();
+
+			foreach ( $curl_request_headers as $name => $value ) {
+				$curl_headers[] = '' === (string) $value ? "{$name}:" : "{$name}: {$value}";
+			}
+
+			curl_setopt( $handle, CURLOPT_HTTPHEADER, $curl_headers );
+		}
 
 		if ( '1.0' === (string) $parsed_args['httpversion'] ) {
 			curl_setopt( $handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0 );
@@ -438,62 +438,62 @@ final class Streaming_HTTP_Client_Service {
 			}
 		);
 
-		curl_setopt(
-			$handle,
-			CURLOPT_WRITEFUNCTION,
-			function ( $curl_handle, string $data ) use ( &$bytes_written_total, $limit, $body_handle, $parser, $context, &$last_write_error ) {
-				$data_length = strlen( $data );
+			curl_setopt(
+				$handle,
+				CURLOPT_WRITEFUNCTION,
+				function ( $curl_handle, string $data ) use ( &$bytes_written_total, $limit, $body_handle, $parser, $context, &$last_write_error ) {
+					$data_length = strlen( $data );
 
-				if ( $limit > 0 && ( $bytes_written_total + $data_length ) > $limit ) {
-					$data_length = max( 0, $limit - $bytes_written_total );
-					$data        = substr( $data, 0, $data_length );
-				}
+					if ( $limit > 0 && ( $bytes_written_total + $data_length ) > $limit ) {
+						$data_length = max( 0, $limit - $bytes_written_total );
+						$data        = substr( $data, 0, $data_length );
+					}
 
-				if ( 0 === $data_length ) {
-					return 0;
-				}
-
-				$bytes_written = $data_length;
-
-				if ( is_resource( $body_handle ) ) {
-					$bytes_written = fwrite( $body_handle, $data );
-
-					if ( false === $bytes_written ) {
-						$last_write_error = __( 'Failed to write the streamed response body.' );
+					if ( 0 === $data_length ) {
 						return 0;
 					}
-				}
 
-				$bytes_written_total += (int) $bytes_written;
+					$bytes_written = $data_length;
 
-				$chunk_context = array_merge(
-					$context,
-					array(
-						'bytes_received'      => $bytes_written_total,
-						'limit_response_size' => $limit > 0 ? $limit : null,
-					)
-				);
+					if ( is_resource( $body_handle ) ) {
+						$bytes_written = fwrite( $body_handle, $data );
 
-				do_action( 'requests-request.progress', $data, $bytes_written_total, $limit > 0 ? $limit : null );
-				do_action( 'wp_stream_http_chunk', $data, $chunk_context );
-
-				if ( $parser instanceof SSE_Parser ) {
-					foreach ( $parser->push( $data ) as $event ) {
-						do_action( 'wp_stream_http_sse_event', $event, $chunk_context );
-
-						if ( true !== apply_filters( 'wp_stream_http_continue', true, $event, $chunk_context ) ) {
-							$last_write_error = __( 'Streaming request aborted by wp_stream_http_continue.' );
+						if ( false === $bytes_written ) {
+							$last_write_error = __( 'Failed to write the streamed response body.', 'wp-stream' );
 							return 0;
 						}
 					}
-				} elseif ( true !== apply_filters( 'wp_stream_http_continue', true, $data, $chunk_context ) ) {
-					$last_write_error = __( 'Streaming request aborted by wp_stream_http_continue.' );
-					return 0;
-				}
 
-				return (int) $bytes_written;
-			}
-		);
+					$bytes_written_total += (int) $bytes_written;
+
+					$chunk_context = array_merge(
+						$context,
+						array(
+							'bytes_received'      => $bytes_written_total,
+							'limit_response_size' => $limit > 0 ? $limit : null,
+						)
+					);
+
+					do_action( 'requests-request.progress', $data, $bytes_written_total, $limit > 0 ? $limit : null );
+					do_action( 'wp_stream_http_chunk', $data, $chunk_context );
+
+					if ( $parser instanceof SSE_Parser ) {
+						foreach ( $parser->push( $data ) as $event ) {
+							do_action( 'wp_stream_http_sse_event', $event, $chunk_context );
+
+							if ( true !== apply_filters( 'wp_stream_http_continue', true, $event, $chunk_context ) ) {
+								$last_write_error = __( 'Streaming request aborted by wp_stream_http_continue.', 'wp-stream' );
+								return 0;
+							}
+						}
+					} elseif ( true !== apply_filters( 'wp_stream_http_continue', true, $data, $chunk_context ) ) {
+						$last_write_error = __( 'Streaming request aborted by wp_stream_http_continue.', 'wp-stream' );
+						return 0;
+					}
+
+					return (int) $bytes_written;
+				}
+			);
 
 		do_action_ref_array( 'http_api_curl', array( &$handle, $parsed_args, $url ) );
 
@@ -598,7 +598,7 @@ final class Streaming_HTTP_Client_Service {
 		$location = \WP_Http::make_absolute_url( $location, $url );
 
 		if ( ! empty( $parsed_args['reject_unsafe_urls'] ) && ! wp_http_validate_url( $location ) ) {
-			return new \WP_Error( 'http_request_failed', __( 'A valid URL was not provided.' ) );
+				return new \WP_Error( 'http_request_failed', __( 'A valid URL was not provided.', 'wp-stream' ) );
 		}
 
 		return $location;

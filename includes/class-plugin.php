@@ -93,7 +93,7 @@ final class Plugin {
 		);
 
 		if ( ! class_exists( '\WordPress\AiClient\AiClient' ) ) {
-			$diagnostics['message'] = 'WordPress AI Client is not available.';
+			$diagnostics['message'] = __( 'WordPress AI Client is not available.', 'wp-stream' );
 			return $diagnostics;
 		}
 
@@ -102,14 +102,14 @@ final class Plugin {
 			$diagnostics['registry_class'] = get_class( $registry );
 
 			if ( ! method_exists( $registry, 'getHttpTransporter' ) ) {
-				$diagnostics['message'] = 'The default AI registry does not expose an HTTP transporter.';
+				$diagnostics['message'] = __( 'The default AI registry does not expose an HTTP transporter.', 'wp-stream' );
 				return $diagnostics;
 			}
 
 			$transporter = $registry->getHttpTransporter();
 
 			if ( ! is_object( $transporter ) ) {
-				$diagnostics['message'] = 'The default AI registry returned an invalid transporter.';
+				$diagnostics['message'] = __( 'The default AI registry returned an invalid transporter.', 'wp-stream' );
 				return $diagnostics;
 			}
 
@@ -126,14 +126,15 @@ final class Plugin {
 			$diagnostics['is_active'] = $diagnostics['is_streaming_client'];
 
 			if ( $diagnostics['is_active'] ) {
-				$diagnostics['message'] = 'WP Stream transport is active for the default AI Client registry.';
+				$diagnostics['message'] = __( 'WP Stream transport is active for the default AI Client registry.', 'wp-stream' );
 			} elseif ( $diagnostics['client_class'] ) {
 				$diagnostics['message'] = sprintf(
-					'WP Stream transport is not active. The default AI Client registry is currently using %s.',
+					/* translators: %s: Active HTTP client class name. */
+					__( 'WP Stream transport is not active. The default AI Client registry is currently using %s.', 'wp-stream' ),
 					$diagnostics['client_class']
 				);
 			} else {
-				$diagnostics['message'] = 'WP Stream could not confirm the active AI Client HTTP client.';
+				$diagnostics['message'] = __( 'WP Stream could not confirm the active AI Client HTTP client.', 'wp-stream' );
 			}
 		} catch ( \Throwable $throwable ) {
 			$diagnostics['message'] = $throwable->getMessage();
