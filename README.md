@@ -1,33 +1,57 @@
 # WP Stream
 
-`WP Stream` is a WordPress plugin that adds plugin-side streaming support to the WordPress AI client HTTP transport without patching WordPress core.
+`WP Stream` is now split into two parts:
 
-It installs a streaming-aware HTTP client into the AI client stack, keeps normal requests on the standard path, and only switches to the custom cURL transport when a request opts into streaming.
+- `bradvin/wp-stream-core`: a Composer library with the reusable streaming runtime.
+- `wp-stream`: a thin WordPress plugin wrapper that ships the admin demo and backward-compatible global helper.
 
-## What It Includes
+The runtime installs a streaming-aware HTTP client into the AI client stack, keeps normal requests on the standard path, and only switches to the custom cURL transport when a request opts into streaming.
 
-- A transport layer that can handle streamed SSE responses.
-- A bridge helper for `AiClient::generateResult()`-style usage.
-- A simple admin demo at `Tools > WP Stream Chat`.
-- Plugin-side integration only. No WordPress core edits are required.
+## Packages
 
-## Installation
+- `packages/wp-stream-core/`: Composer package for reuse inside other plugins.
+- Plugin root: wrapper plugin, admin demo, assets, and `wp_stream_generate_result()`.
+
+## Wrapper Plugin Installation
 
 1. Copy this plugin into `wp-content/plugins/wp-stream`.
-2. Activate `WP Stream`.
-3. Make sure the WordPress AI client is available in the site runtime.
+2. Run `composer install` when building a distributable plugin, or rely on the included source fallback in local development.
+3. Activate `WP Stream`.
+4. Make sure the WordPress AI client is available in the site runtime.
 
-## Quick Start
+## Composer Consumption
+
+Require the runtime package from another plugin and register it during your bootstrap:
+
+```php
+use WP_Stream\Ai_Client_Bridge;
+use WP_Stream\Integration\Runtime;
+
+Runtime::register();
+
+$result = Ai_Client_Bridge::generateResult(
+	$prompt_messages,
+	$model_config,
+	null,
+	array(
+		'streaming_enabled' => true,
+	)
+);
+```
+
+This is the preferred integration path when you want to ship the streaming runtime inside another plugin.
+
+## Wrapper Plugin Quick Start
 
 ### Admin Demo
 
 After activation, open `Tools > WP Stream Chat`.
 
-That screen uses the bridge helper and lets you toggle streaming on and off while testing the same request flow.
+That screen uses the Composer runtime through the thin wrapper and lets you toggle streaming on and off while testing the same request flow.
 
-### PHP Usage
+### Backward-Compatible PHP Helper
 
-Use `wp_stream_generate_result()` as a drop-in wrapper around the normal AI client prompt flow. It still returns the final result object, but it can also forward streaming events while the request is running.
+The wrapper still exposes `wp_stream_generate_result()` as a compatibility helper. It forwards directly to `WP_Stream\Ai_Client_Bridge::generateResult()`.
 
 ```php
 use WordPress\AiClient\Builders\MessageBuilder;
@@ -79,12 +103,12 @@ $final_text = $result->toText();
 
 ## How It Works
 
-The plugin synchronizes the default AI client registry with a streaming-aware HTTP client. When a request is matched for streaming, the bridge marks that request as stream-enabled, the transport sends it as an SSE-capable cURL request, and the plugin emits chunk and event callbacks while the response is still in flight.
+`WP_Stream\Integration\Runtime::register()` synchronizes the default AI client registry with a streaming-aware HTTP client. When a request is matched for streaming, the bridge marks that request as stream-enabled, the transport sends it as an SSE-capable cURL request, and the runtime emits chunk and event callbacks while the response is still in flight.
 
 If a request is not matched for streaming, it falls back to the normal AI client transport path.
 
 ## Notes
 
-- This plugin is intended to extend the WordPress AI client, not replace it.
-- The bridge keeps `generateResult()`-style ergonomics, but streaming happens through callbacks during the request.
+- The Composer runtime is the source of truth for reusable streaming behavior.
+- The wrapper plugin is intentionally thin and only exists for standalone plugin usage and the demo UI.
 - The admin chat screen is intentionally minimal and is meant as a working streaming example, not a production chat UI.
