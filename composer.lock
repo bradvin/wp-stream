@@ -24,7 +24,7 @@
                 ]
             },
             "license": [
-                "proprietary"
+                "GPL-2.0-or-later"
             ],
             "description": "WordPress AI streaming adapter package that mirrors WordPress 7 AI integration patterns.",
             "transport-options": {

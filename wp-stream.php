@@ -4,6 +4,8 @@
  * Description: Thin wrapper plugin and demo UI for the WordPress AI streaming adapter package.
  * Version: 0.1.0
  * Author: bradvin
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
  * Text Domain: wp-stream
  * Requires PHP: 7.4
  */

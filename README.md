@@ -1,18 +1,11 @@
 # WP Stream
 
-`WP Stream` now ships as two pieces:
+`WP Stream` is the thin wrapper plugin for `bradvin/wp-ai-client-streaming`.
 
-- `bradvin/wp-ai-client-streaming`: a standalone WordPress 7 streaming adapter package that mirrors core’s `WP_AI_*` integration style.
-- `wp-stream`: a thin wrapper plugin that keeps the demo UI and package bootstrap.
+The plugin exists to do two things:
 
-The goal is to make the reusable package look like a small WordPress AI adapter layer that could be copied into core with minimal structural change.
-
-## Package Layout
-
-- `bradvin/wp-ai-client-streaming`
-  Standalone Composer package with the core-style adapter files, loader, and streaming prompt helpers.
-- Plugin root
-  Wrapper bootstrap, admin demo, and assets.
+- bootstrap the standalone Composer package inside WordPress
+- provide the `Tools > WP Stream Chat` admin demo UI
 
 ## Wrapper Plugin Installation
 
@@ -22,50 +15,30 @@ The goal is to make the reusable package look like a small WordPress AI adapter 
 4. Activate `WP Stream`.
 5. Make sure WordPress 7 AI support is available in the runtime.
 
-## Composer Consumption
+If Composer dependencies are missing, the plugin will not bootstrap and will show an admin notice instead.
 
-Bootstrap the adapter early in your plugin load path:
+## What Lives Here
 
-```php
-WP_AI_Client_Streaming_Discovery_Strategy::init();
-```
+- wrapper bootstrap in `wp-stream.php`
+- admin demo screen in `includes/class-admin-chat-page.php`
+- wrapper diagnostics delegation in `includes/class-plugin.php`
 
-Then use the WordPress-style streaming helper:
+## Package Docs
 
-```php
-$result = wp_ai_client_stream_prompt(
-	$prompt_messages,
-	array(
-		'streaming_enabled' => true,
-		'on_event'          => static function ( WP_AI_Client_SSE_Event $event, array $context ) {
-			// Handle streamed SSE events.
-		},
-	)
-)
-	->using_model_config( $model_config )
-	->generate_result();
-```
+Core-facing architecture notes and the actual streaming integration guidance now live with the package:
 
-If you already have a core prompt builder, wrap it directly:
+- `bradvin/wp-ai-client-streaming/README.md`
+- `bradvin/wp-ai-client-streaming/docs/core-review-notes.md`
+- `bradvin/wp-ai-client-streaming/docs/integration-guide.md`
 
-```php
-$builder = wp_ai_client_prompt( $prompt_messages )->using_model_config( $model_config );
-$result  = wp_ai_client_stream( $builder, array( 'streaming_enabled' => true ) )->generate_result();
-```
-
-## Streaming Hooks
-
-The runtime-facing hooks now follow the WordPress AI naming model:
-
-- `wp_ai_client_stream_request_start`
-- `wp_ai_client_stream_chunk`
-- `wp_ai_client_stream_sse_event`
-- `wp_ai_client_stream_complete`
-- `wp_ai_client_stream_error`
-- `wp_ai_client_stream_continue`
+The plugin README intentionally stays focused on the wrapper so the package remains the source of truth for reusable runtime behavior.
 
 ## Demo UI
 
 After activation, open `Tools > WP Stream Chat`.
 
-That screen uses the same `wp_ai_client_stream_prompt()` flow as external consumers, so the demo stays aligned with the package’s preferred public API.
+That screen exercises the same `wp_ai_client_stream_prompt()` flow external consumers use through the package.
+
+## License
+
+`WP Stream` is licensed under `GPL-2.0-or-later`.
