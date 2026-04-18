@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "bradvin/wp-ai-client-streaming",
-            "version": "v0.1.0",
+            "version": "v0.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bradvin/wp-ai-client-streaming.git",
-                "reference": "b179209cf173ef39e946fc8713b4c81b14cd6a61"
+                "reference": "2825b743aef690145236f9a8392fd3b1bcade796"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bradvin/wp-ai-client-streaming/zipball/b179209cf173ef39e946fc8713b4c81b14cd6a61",
-                "reference": "b179209cf173ef39e946fc8713b4c81b14cd6a61",
+                "url": "https://api.github.com/repos/bradvin/wp-ai-client-streaming/zipball/2825b743aef690145236f9a8392fd3b1bcade796",
+                "reference": "2825b743aef690145236f9a8392fd3b1bcade796",
                 "shasum": ""
             },
             "require": {
@@ -56,7 +56,7 @@
                 "issues": "https://github.com/bradvin/wp-ai-client-streaming/issues",
                 "source": "https://github.com/bradvin/wp-ai-client-streaming"
             },
-            "time": "2026-04-18T14:09:12+00:00"
+            "time": "2026-04-18T15:36:28+00:00"
         }
     ],
     "packages-dev": [],
