@@ -11,6 +11,7 @@
 	const clearButton = document.getElementById( 'wp-stream-chat-clear' );
 	const notice = document.getElementById( 'wp-stream-chat-notice' );
 	const spinner = document.getElementById( 'wp-stream-chat-spinner' );
+	const streamingToggle = document.getElementById( 'wp-stream-enable-streaming' );
 	const systemPrompt = document.getElementById( 'wp-stream-system-prompt' );
 	const temperature = document.getElementById( 'wp-stream-temperature' );
 	const maxTokens = document.getElementById( 'wp-stream-max-tokens' );
@@ -23,6 +24,9 @@
 		messages: [],
 		isStreaming: false,
 	};
+	let waitTimerId = null;
+
+	const isStreamingEnabled = () => ! streamingToggle || streamingToggle.checked;
 
 	const setNotice = ( type, message ) => {
 		if ( ! message ) {
@@ -41,6 +45,15 @@
 		input.disabled = isBusy;
 		clearButton.disabled = isBusy;
 		spinner.classList.toggle( 'is-active', isBusy );
+
+		if ( waitTimerId ) {
+			window.clearInterval( waitTimerId );
+			waitTimerId = null;
+		}
+
+		if ( isBusy ) {
+			waitTimerId = window.setInterval( render, 1000 );
+		}
 	};
 
 	const render = () => {
@@ -81,7 +94,12 @@
 		}
 
 		if ( ! message.content && message.pending ) {
-			return '<p class="wp-stream-chat__typing">Waiting for streamed output…</p>';
+			const seconds = typeof message.pendingSince === 'number'
+				? Math.max( 0, Math.floor( ( Date.now() - message.pendingSince ) / 1000 ) )
+				: 0;
+			const label = message.streaming ? 'Waiting for streamed output' : 'Waiting for response';
+
+			return '<p class="wp-stream-chat__typing">' + label + '… ' + seconds + 's</p>';
 		}
 
 		return '<p>' + escapeHtml( message.content || '' ).replaceAll( '\n', '<br>' ) + '</p>';
@@ -100,6 +118,8 @@
 		role: 'assistant',
 		content: '',
 		pending: true,
+		pendingSince: Date.now(),
+		streaming: isStreamingEnabled(),
 	} );
 
 	const getAssistantMessage = () => {
@@ -160,6 +180,7 @@
 					role: message.role,
 					content: message.content,
 				} ) ) ),
+				streaming_enabled: streamingToggle && ! streamingToggle.checked ? '0' : '1',
 				system_prompt: systemPrompt ? systemPrompt.value : '',
 				temperature: temperature ? temperature.value : '',
 				max_tokens: maxTokens ? maxTokens.value : '',

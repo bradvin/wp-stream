@@ -126,19 +126,11 @@ final class Admin_Chat_Page {
 			<div class="wrap wp-stream-admin">
 				<h1>WP Stream Chat</h1>
 
-				<div class="notice inline <?php echo esc_attr( $transport_notice_class ); ?> wp-stream-admin__transport-check">
-					<p>
-						<strong>Streaming Transport:</strong>
-						<?php echo esc_html( $transport_diagnostics['message'] ); ?>
-					</p>
-					<p class="wp-stream-admin__transport-meta">
-						<code>Transporter</code>:
-						<?php echo esc_html( (string) ( $transport_diagnostics['transporter_class'] ?: 'Unavailable' ) ); ?>
-						<br />
-						<code>Client</code>:
-						<?php echo esc_html( (string) ( $transport_diagnostics['client_class'] ?: 'Unavailable' ) ); ?>
-					</p>
-				</div>
+					<div class="notice inline <?php echo esc_attr( $transport_notice_class ); ?> wp-stream-admin__transport-check">
+						<p>
+							<?php echo esc_html( $transport_is_active ? '✅ Streaming is available.' : '❌ Streaming is unavailable.' ); ?>
+						</p>
+					</div>
 
 				<?php if ( ! $ai_supported ) : ?>
 					<div class="notice notice-warning inline">
@@ -150,6 +142,10 @@ final class Admin_Chat_Page {
 				<section class="wp-stream-chat card">
 					<div class="wp-stream-chat__header">
 						<h2>Chat</h2>
+						<label class="wp-stream-chat__toggle" for="wp-stream-enable-streaming">
+							<input id="wp-stream-enable-streaming" type="checkbox" checked="checked" />
+							<span>Enable streaming</span>
+						</label>
 					</div>
 
 					<div id="wp-stream-chat-notice" class="notice inline hidden" aria-live="polite"></div>
@@ -172,46 +168,20 @@ final class Admin_Chat_Page {
 							id="wp-stream-chat-input"
 							class="large-text"
 							rows="4"
-							<?php disabled( ! $transport_is_active ); ?>
 							placeholder="Ask something"
 						></textarea>
 
+						<textarea id="wp-stream-system-prompt" hidden>You are an assistant inside the WordPress admin. Always answer with a deliberately verbose response so streaming behavior is easy to observe. Prefer 5 to 8 substantial paragraphs, include concrete detail and examples where relevant, and avoid extremely short answers even for simple prompts. Keep formatting light and do not use markdown tables.</textarea>
+						<input id="wp-stream-temperature" type="hidden" value="0.7" />
+						<input id="wp-stream-max-tokens" type="hidden" value="512" />
+
 						<div class="wp-stream-chat__actions">
-							<button type="submit" class="button button-primary" <?php disabled( ! $transport_is_active ); ?>>Send message</button>
-							<button type="button" class="button button-secondary" id="wp-stream-chat-clear" <?php disabled( ! $transport_is_active ); ?>>Clear chat</button>
+							<button type="submit" class="button button-primary">Send message</button>
+							<button type="button" class="button button-secondary" id="wp-stream-chat-clear">Clear chat</button>
 							<span class="spinner" id="wp-stream-chat-spinner" aria-hidden="true"></span>
 						</div>
 					</form>
-
-					<?php if ( ! $transport_is_active ) : ?>
-						<p class="wp-stream-chat__transport-warning">
-							Chat is disabled until the WP Stream HTTP client is active.
-						</p>
-					<?php endif; ?>
 				</section>
-
-				<aside class="wp-stream-chat-settings card">
-					<h2>Settings</h2>
-
-					<div class="wp-stream-chat-settings__field">
-						<label for="wp-stream-system-prompt"><strong>System prompt</strong></label>
-							<textarea
-								id="wp-stream-system-prompt"
-								class="large-text"
-								rows="5"
-							>You are an assistant inside the WordPress admin. Always answer with a deliberately verbose response so streaming behavior is easy to observe. Prefer 5 to 8 substantial paragraphs, include concrete detail and examples where relevant, and avoid extremely short answers even for simple prompts. Keep formatting light and do not use markdown tables.</textarea>
-						</div>
-
-					<div class="wp-stream-chat-settings__field">
-						<label for="wp-stream-temperature"><strong>Temperature</strong></label>
-						<input id="wp-stream-temperature" class="small-text" type="number" min="0" max="2" step="0.1" value="0.7" />
-					</div>
-
-					<div class="wp-stream-chat-settings__field">
-						<label for="wp-stream-max-tokens"><strong>Max tokens</strong></label>
-						<input id="wp-stream-max-tokens" class="small-text" type="number" min="32" max="4096" step="1" value="512" />
-					</div>
-				</aside>
 			</div>
 		</div>
 		<?php
@@ -241,9 +211,10 @@ final class Admin_Chat_Page {
 			);
 		}
 
+		$streaming_enabled = ! isset( $_POST['streaming_enabled'] ) || filter_var( wp_unslash( $_POST['streaming_enabled'] ), FILTER_VALIDATE_BOOLEAN );
 		$transport_diagnostics = Plugin::get_transport_diagnostics();
 
-		if ( empty( $transport_diagnostics['is_active'] ) ) {
+		if ( $streaming_enabled && empty( $transport_diagnostics['is_active'] ) ) {
 			wp_send_json_error(
 				array(
 					'message' => $transport_diagnostics['message'] ?: 'The WP Stream HTTP transport is not active for the default AI Client registry.',
@@ -292,6 +263,7 @@ final class Admin_Chat_Page {
 			'start',
 			array(
 				'requestId' => $request_id,
+				'streaming' => $streaming_enabled,
 			)
 		);
 
@@ -300,14 +272,39 @@ final class Admin_Chat_Page {
 				$prompt_messages,
 				$model_config,
 				null,
-				array(
-					'request_id'      => $request_id,
-					'request_timeout' => 120.0,
-					'connect_timeout' => 15.0,
-					'on_event'        => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
-						if ( $event->is_done() ) {
-							return;
-						}
+					array(
+						'request_id'      => $request_id,
+						'request_timeout' => 120.0,
+						'connect_timeout' => 15.0,
+						'request_matcher' => static function ( $request, array $headers, ?string $body ) use ( $streaming_enabled ) {
+							if ( ! $streaming_enabled ) {
+								return false;
+							}
+
+							$method = strtoupper( (string) $request->getMethod() );
+
+							if ( ! in_array( $method, array( 'POST', 'PUT', 'PATCH' ), true ) || empty( $body ) ) {
+								return false;
+							}
+
+							$payload = json_decode( $body, true );
+
+							if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $payload ) ) {
+								return false;
+							}
+
+							foreach ( array( 'messages', 'input', 'contents' ) as $key ) {
+								if ( array_key_exists( $key, $payload ) ) {
+									return true;
+								}
+							}
+
+							return ! empty( $payload['stream'] );
+						},
+						'on_event'        => static function ( SSE_Event $event, array $context ) use ( &$assistant_text ) {
+							if ( $event->is_done() ) {
+								return;
+							}
 
 						$delta = self::extract_event_text( $event );
 
