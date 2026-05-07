@@ -7,9 +7,15 @@
 
 namespace WP_Stream;
 
+use WordPress\AiClient\AiClient;
 use WordPress\AiClient\Builders\MessageBuilder;
 use WordPress\AiClient\Messages\Enums\ModalityEnum;
+use WordPress\AiClient\Providers\DTO\ProviderMetadata;
 use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
+use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+use WordPress\AiClient\Providers\Models\DTO\ModelRequirements;
+use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
+use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 
 /**
  * Registers a minimal wp-admin page that streams AI responses into a chat transcript.
@@ -35,11 +41,6 @@ final class Admin_Chat_Page {
 	 * Nonce action.
 	 */
 	private const NONCE_ACTION = 'wp_stream_chat_demo';
-
-	/**
-	 * Default temperature used by the demo form.
-	 */
-	private const DEFAULT_TEMPERATURE = 0.7;
 
 	/**
 	 * Default max token value used by the demo form.
@@ -134,6 +135,13 @@ final class Admin_Chat_Page {
 		$transport_notice_class   = $transport_is_active ? 'notice-success' : 'notice-warning';
 		$transport_status_message = $transport_is_active ? __( '✅ Streaming is available.', 'wp-stream' ) : __( '❌ Streaming is unavailable.', 'wp-stream' );
 		$default_system_prompt    = self::get_default_system_prompt();
+		$loaded_model             = $ai_supported
+			? self::get_loaded_model_details(
+				self::build_default_model_config(),
+				self::build_model_preview_messages()
+			)
+			: self::get_unavailable_model_details( __( 'AI support is disabled.', 'wp-stream' ) );
+		$loaded_model_class       = empty( $loaded_model['isAvailable'] ) ? 'is-unavailable' : '';
 		?>
 		<div class="wrap wp-stream-admin">
 			<h1><?php esc_html_e( 'WP Stream Chat', 'wp-stream' ); ?></h1>
@@ -151,7 +159,16 @@ final class Admin_Chat_Page {
 			<div class="wp-stream-admin__grid">
 				<section class="wp-stream-chat card">
 					<div class="wp-stream-chat__header">
-						<h2><?php esc_html_e( 'Chat', 'wp-stream' ); ?></h2>
+						<div class="wp-stream-chat__heading">
+							<h2><?php esc_html_e( 'Chat', 'wp-stream' ); ?></h2>
+							<p class="wp-stream-chat__model">
+								<span><?php esc_html_e( 'Loaded model:', 'wp-stream' ); ?></span>
+								<code
+									id="wp-stream-chat-model"
+									class="<?php echo esc_attr( $loaded_model_class ); ?>"
+								><?php echo esc_html( $loaded_model['label'] ); ?></code>
+							</p>
+						</div>
 						<label class="wp-stream-chat__toggle" for="wp-stream-enable-streaming">
 							<input id="wp-stream-enable-streaming" type="checkbox" <?php echo checked( true, true, false ); ?> />
 							<span><?php esc_html_e( 'Enable streaming', 'wp-stream' ); ?></span>
@@ -182,7 +199,6 @@ final class Admin_Chat_Page {
 						></textarea>
 
 						<textarea id="wp-stream-system-prompt" hidden><?php echo esc_textarea( $default_system_prompt ); ?></textarea>
-						<input id="wp-stream-temperature" type="hidden" value="<?php echo esc_attr( (string) self::DEFAULT_TEMPERATURE ); ?>" />
 						<input id="wp-stream-max-tokens" type="hidden" value="<?php echo esc_attr( (string) self::DEFAULT_MAX_TOKENS ); ?>" />
 
 						<div class="wp-stream-chat__actions">
@@ -266,6 +282,7 @@ final class Admin_Chat_Page {
 
 		$request_id     = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'wp-stream-demo-', true );
 		$model_config   = self::build_model_config();
+		$loaded_model   = self::get_loaded_model_details( $model_config, $prompt_messages );
 		$assistant_text = '';
 
 		self::start_stream_response();
@@ -274,6 +291,7 @@ final class Admin_Chat_Page {
 			array(
 				'requestId' => $request_id,
 				'streaming' => $streaming_enabled,
+				'model'     => $loaded_model,
 			)
 		);
 
@@ -339,6 +357,7 @@ final class Admin_Chat_Page {
 				array(
 					'requestId' => $request_id,
 					'text'      => $final_text,
+					'model'     => self::get_result_model_details( $result ),
 				)
 			);
 		} catch ( \Throwable $throwable ) {
@@ -506,26 +525,160 @@ final class Admin_Chat_Page {
 	 * @return ModelConfig
 	 */
 	private static function build_model_config(): ModelConfig {
+		$system_prompt = isset( $_POST['system_prompt'] )
+			? sanitize_textarea_field( wp_unslash( $_POST['system_prompt'] ) )
+			: self::get_default_system_prompt();
+		$max_tokens    = isset( $_POST['max_tokens'] )
+			? (int) wp_unslash( $_POST['max_tokens'] )
+			: self::DEFAULT_MAX_TOKENS;
+
+		return self::build_model_config_from_values( $system_prompt, $max_tokens );
+	}
+
+	/**
+	 * Builds the default model config used before a chat request is submitted.
+	 *
+	 * @return ModelConfig
+	 */
+	private static function build_default_model_config(): ModelConfig {
+		return self::build_model_config_from_values(
+			self::get_default_system_prompt(),
+			self::DEFAULT_MAX_TOKENS
+		);
+	}
+
+	/**
+	 * Builds the model config from sanitized values.
+	 *
+	 * @param string $system_prompt System prompt.
+	 * @param int    $max_tokens    Maximum tokens.
+	 * @return ModelConfig
+	 */
+	private static function build_model_config_from_values(
+		string $system_prompt,
+		int $max_tokens
+	): ModelConfig {
 		$config = new ModelConfig();
 
 		$config->setOutputModalities( array( ModalityEnum::text() ) );
 
-		$system_prompt = isset( $_POST['system_prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['system_prompt'] ) ) : self::get_default_system_prompt();
 		if ( '' !== $system_prompt ) {
 			$config->setSystemInstruction( $system_prompt );
 		}
 
-		$temperature = isset( $_POST['temperature'] ) ? (float) wp_unslash( $_POST['temperature'] ) : self::DEFAULT_TEMPERATURE;
-		if ( null !== $temperature && $temperature >= 0 && $temperature <= 2 ) {
-			$config->setTemperature( $temperature );
-		}
-
-		$max_tokens = isset( $_POST['max_tokens'] ) ? (int) wp_unslash( $_POST['max_tokens'] ) : self::DEFAULT_MAX_TOKENS;
 		if ( $max_tokens > 0 ) {
 			$config->setMaxTokens( $max_tokens );
 		}
 
 		return $config;
+	}
+
+	/**
+	 * Builds a text-only preview prompt so model discovery matches the chat request.
+	 *
+	 * @return array<int, \WordPress\AiClient\Messages\DTO\Message>
+	 */
+	private static function build_model_preview_messages(): array {
+		$builder = new MessageBuilder( __( 'Preview the loaded chat model.', 'wp-stream' ) );
+		$builder->usingUserRole();
+
+		return array( $builder->get() );
+	}
+
+	/**
+	 * Resolves the model the chat will use for text generation.
+	 *
+	 * @param ModelConfig                                          $model_config    Model config.
+	 * @param array<int, \WordPress\AiClient\Messages\DTO\Message> $prompt_messages Prompt messages.
+	 * @return array<string, mixed>
+	 */
+	private static function get_loaded_model_details( ModelConfig $model_config, array $prompt_messages ): array {
+		if (
+			! class_exists( AiClient::class ) ||
+			! class_exists( ModelRequirements::class ) ||
+			! class_exists( CapabilityEnum::class )
+		) {
+			return self::get_unavailable_model_details( __( 'WordPress AI Client is unavailable.', 'wp-stream' ) );
+		}
+
+		try {
+			$requirements             = ModelRequirements::fromPromptData(
+				CapabilityEnum::textGeneration(),
+				$prompt_messages,
+				$model_config
+			);
+			$provider_models_metadata = AiClient::defaultRegistry()->findModelsMetadataForSupport( $requirements );
+
+			foreach ( $provider_models_metadata as $provider_models ) {
+				$models = $provider_models->getModels();
+
+				if ( empty( $models ) ) {
+					continue;
+				}
+
+				$model = reset( $models );
+
+				if ( $model instanceof ModelMetadata ) {
+					return self::format_model_details( $provider_models->getProvider(), $model );
+				}
+			}
+		} catch ( \Throwable $throwable ) {
+			return self::get_unavailable_model_details( $throwable->getMessage() );
+		}
+
+		return self::get_unavailable_model_details( __( 'No text generation model is currently loaded.', 'wp-stream' ) );
+	}
+
+	/**
+	 * Gets model details from the generated result.
+	 *
+	 * @param GenerativeAiResult $result Generated result.
+	 * @return array<string, mixed>
+	 */
+	private static function get_result_model_details( GenerativeAiResult $result ): array {
+		return self::format_model_details( $result->getProviderMetadata(), $result->getModelMetadata() );
+	}
+
+	/**
+	 * Formats provider and model metadata for the chat UI.
+	 *
+	 * @param ProviderMetadata $provider Provider metadata.
+	 * @param ModelMetadata    $model    Model metadata.
+	 * @return array<string, mixed>
+	 */
+	private static function format_model_details( ProviderMetadata $provider, ModelMetadata $model ): array {
+		$provider_name = $provider->getName();
+		$provider_id   = $provider->getId();
+		$model_name    = $model->getName();
+		$model_id      = $model->getId();
+
+		return array(
+			'isAvailable'  => true,
+			'providerId'   => $provider_id,
+			'providerName' => $provider_name,
+			'id'           => $model_id,
+			'name'         => $model_name,
+			'label'        => sprintf(
+				/* translators: 1: AI provider name. 2: AI model name. */
+				__( '%1$s / %2$s', 'wp-stream' ),
+				$provider_name ?: $provider_id,
+				$model_name ?: $model_id
+			),
+		);
+	}
+
+	/**
+	 * Formats an unavailable model state for the chat UI.
+	 *
+	 * @param string $message Status message.
+	 * @return array<string, mixed>
+	 */
+	private static function get_unavailable_model_details( string $message ): array {
+		return array(
+			'isAvailable' => false,
+			'message'     => $message,
+			'label'       => $message,
+		);
 	}
 
 	/**

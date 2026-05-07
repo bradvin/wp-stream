@@ -11,9 +11,9 @@
 	const clearButton = document.getElementById( 'wp-stream-chat-clear' );
 	const notice = document.getElementById( 'wp-stream-chat-notice' );
 	const spinner = document.getElementById( 'wp-stream-chat-spinner' );
+	const model = document.getElementById( 'wp-stream-chat-model' );
 	const streamingToggle = document.getElementById( 'wp-stream-enable-streaming' );
 	const systemPrompt = document.getElementById( 'wp-stream-system-prompt' );
-	const temperature = document.getElementById( 'wp-stream-temperature' );
 	const maxTokens = document.getElementById( 'wp-stream-max-tokens' );
 
 	if ( ! form || ! input || ! log || ! clearButton || ! notice || ! spinner ) {
@@ -27,6 +27,7 @@
 	let waitTimerId = null;
 
 	const isStreamingEnabled = () => ! streamingToggle || streamingToggle.checked;
+	const getTimestamp = () => Date.now();
 
 	const setNotice = ( type, message ) => {
 		if ( ! message ) {
@@ -37,6 +38,46 @@
 
 		notice.className = 'notice inline notice-' + type;
 		notice.innerHTML = '<p>' + escapeHtml( message ) + '</p>';
+	};
+
+	const setModelDetails = ( details ) => {
+		if ( ! model || ! details || typeof details !== 'object' ) {
+			return;
+		}
+
+		const label = details.label || details.name || details.id || '';
+
+		if ( ! label ) {
+			return;
+		}
+
+		model.textContent = label;
+		model.classList.toggle( 'is-unavailable', details.isAvailable === false );
+	};
+
+	const formatDuration = ( milliseconds ) => {
+		if ( typeof milliseconds !== 'number' || milliseconds < 0 ) {
+			return '';
+		}
+
+		if ( milliseconds < 1000 ) {
+			return Math.round( milliseconds ) + 'ms';
+		}
+
+		const seconds = milliseconds / 1000;
+
+		if ( seconds < 10 ) {
+			return seconds.toFixed( 2 ) + 's';
+		}
+
+		if ( seconds < 60 ) {
+			return seconds.toFixed( 1 ) + 's';
+		}
+
+		const minutes = Math.floor( seconds / 60 );
+		const remainder = Math.round( seconds % 60 );
+
+		return minutes + 'm ' + remainder + 's';
 	};
 
 	const setBusy = ( isBusy ) => {
@@ -102,7 +143,30 @@
 			return '<p class="wp-stream-chat__typing">' + label + '… ' + seconds + 's</p>';
 		}
 
-		return '<p>' + escapeHtml( message.content || '' ).replaceAll( '\n', '<br>' ) + '</p>';
+		return '<p>' + escapeHtml( message.content || '' ).replaceAll( '\n', '<br>' ) + '</p>' + renderTimingMetadata( message );
+	};
+
+	const renderTimingMetadata = ( message ) => {
+		if ( message.pending || message.error || ! message.timing ) {
+			return '';
+		}
+
+		const startedAt = message.timing.startedAt;
+		const completedAt = message.timing.completedAt;
+
+		if ( typeof startedAt !== 'number' || typeof completedAt !== 'number' ) {
+			return '';
+		}
+
+		const parts = [];
+
+		if ( message.streaming && typeof message.timing.firstStreamAt === 'number' ) {
+			parts.push( 'First stream: ' + formatDuration( message.timing.firstStreamAt - startedAt ) );
+		}
+
+		parts.push( 'Full response: ' + formatDuration( completedAt - startedAt ) );
+
+		return '<div class="wp-stream-chat__timing">' + parts.map( escapeHtml ).join( ' · ' ) + '</div>';
 	};
 
 	const escapeHtml = ( value ) => {
@@ -114,13 +178,22 @@
 			.replaceAll( "'", '&#039;' );
 	};
 
-	const createAssistantPlaceholder = () => ( {
-		role: 'assistant',
-		content: '',
-		pending: true,
-		pendingSince: Date.now(),
-		streaming: isStreamingEnabled(),
-	} );
+	const createAssistantPlaceholder = () => {
+		const startedAt = getTimestamp();
+
+		return {
+			role: 'assistant',
+			content: '',
+			pending: true,
+			pendingSince: startedAt,
+			streaming: isStreamingEnabled(),
+			timing: {
+				startedAt,
+				firstStreamAt: null,
+				completedAt: null,
+			},
+		};
+	};
 
 	const getAssistantMessage = () => {
 		for ( let index = state.messages.length - 1; index >= 0; index -= 1 ) {
@@ -132,6 +205,21 @@
 		return null;
 	};
 
+	const markRequestStarted = () => {
+		const assistantMessage = getAssistantMessage();
+
+		if ( ! assistantMessage || ! assistantMessage.timing ) {
+			return;
+		}
+
+		const startedAt = getTimestamp();
+
+		assistantMessage.pendingSince = startedAt;
+		assistantMessage.timing.startedAt = startedAt;
+		assistantMessage.timing.firstStreamAt = null;
+		assistantMessage.timing.completedAt = null;
+	};
+
 	const handleStreamFrame = ( frame ) => {
 		if ( ! frame || typeof frame !== 'object' ) {
 			return;
@@ -139,8 +227,19 @@
 
 		const assistantMessage = getAssistantMessage();
 
+		if ( frame.type === 'start' ) {
+			setModelDetails( frame.payload?.model );
+			return;
+		}
+
 		if ( frame.type === 'delta' && assistantMessage ) {
-			assistantMessage.content += String( frame.payload?.text || '' );
+			const text = String( frame.payload?.text || '' );
+
+			if ( text && assistantMessage.timing && typeof assistantMessage.timing.firstStreamAt !== 'number' ) {
+				assistantMessage.timing.firstStreamAt = getTimestamp();
+			}
+
+			assistantMessage.content += text;
 			render();
 			return;
 		}
@@ -148,10 +247,15 @@
 		if ( frame.type === 'done' && assistantMessage ) {
 			assistantMessage.pending = false;
 
+			if ( assistantMessage.timing ) {
+				assistantMessage.timing.completedAt = getTimestamp();
+			}
+
 			if ( typeof frame.payload?.text === 'string' && frame.payload.text !== '' ) {
 				assistantMessage.content = frame.payload.text;
 			}
 
+			setModelDetails( frame.payload?.model );
 			render();
 			setNotice( '', '' );
 			return;
@@ -166,6 +270,8 @@
 	};
 
 	const streamChat = async () => {
+		markRequestStarted();
+
 		const response = await fetch( config.ajaxUrl, {
 			method: 'POST',
 			credentials: 'same-origin',
@@ -182,7 +288,6 @@
 				} ) ) ),
 				streaming_enabled: streamingToggle && ! streamingToggle.checked ? '0' : '1',
 				system_prompt: systemPrompt ? systemPrompt.value : '',
-				temperature: temperature ? temperature.value : '',
 				max_tokens: maxTokens ? maxTokens.value : '',
 			} ).toString(),
 		} );

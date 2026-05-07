@@ -31,6 +31,33 @@
 	margin: 0;
 }
 
+.wp-stream-chat__heading {
+	min-width: 0;
+}
+
+.wp-stream-chat__model {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	align-items: baseline;
+	margin: 6px 0 0;
+	color: #50575e;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.wp-stream-chat__model code {
+	overflow-wrap: anywhere;
+	color: #1d2327;
+	background: transparent;
+	font-size: inherit;
+	padding: 0;
+}
+
+.wp-stream-chat__model code.is-unavailable {
+	color: #8a2424;
+}
+
 .wp-stream-chat__toggle {
 	display: inline-flex;
 	align-items: center;
@@ -101,6 +128,14 @@
 	margin: 0;
 	line-height: 1.6;
 	white-space: normal;
+}
+
+.wp-stream-chat__timing {
+	margin-top: 8px;
+	color: #646970;
+	font-size: 11px;
+	line-height: 1.4;
+	text-align: right;
 }
 
 .wp-stream-chat__typing {
